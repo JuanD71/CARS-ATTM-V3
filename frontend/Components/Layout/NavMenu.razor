@@ -1,0 +1,52 @@
+@using CarsATTM_CustomerApp.Services
+@inject AuthSession AuthSession
+@inject BrowserAuthStore BrowserAuthStore
+@inject NavigationManager Nav
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="brand-lockup" href="/" aria-label="Cars ATTM - Inicio">
+      <img src="/Logo.png" alt="Cars ATTM" />
+      <span class="brand-divider"></span>
+      <span class="brand-subline">RENT A CAR<br />BOGOTÁ, COLOMBIA</span>
+    </a>
+    <nav class="topnav" aria-label="Navegación principal">
+      <NavLink href="/" Match="NavLinkMatch.All">Inicio</NavLink>
+      <NavLink href="/catalog">Explorar flota</NavLink>
+      @if (AuthSession.IsAuthenticated && AuthSession.Role == "cliente") {
+        <NavLink href="/cart">Mi carrito</NavLink>
+        <NavLink href="/orders">Mis alquileres</NavLink>
+        <NavLink href="/multas">Mis multas</NavLink>
+      } else if (AuthSession.IsAuthenticated) {
+        <NavLink href="/orders">Alquileres</NavLink>
+        @if (AuthSession.Role == "admin") {
+          <NavLink href="/panel">Panel de control</NavLink>
+          <NavLink href="/admin">Solicitudes</NavLink>
+          <NavLink href="/flota-admin">Administrar flota</NavLink>
+          <NavLink href="/usuarios-admin">Usuarios</NavLink>
+          <NavLink href="/multas">Multas</NavLink>
+        }
+      }
+    </nav>
+    <div class="account-zone">
+      @if (AuthSession.IsAuthenticated)
+      {
+        <span class="account-avatar">@(AuthSession.Name?.Length > 0 ? AuthSession.Name.Substring(0,1).ToUpperInvariant() : "C")</span>
+        <div class="account-info"><strong>@(AuthSession.Name ?? "Cliente")</strong><small>@(AuthSession.Role == "admin" ? "Administrador" : AuthSession.Role == "vendedor" ? "Asesor comercial" : "Cliente")</small></div>
+        <button class="signout-button" title="Cerrar sesión" @onclick="Logout">Salir ↗</button>
+      }
+      else
+      {
+        <a class="btn btn-outline-dark btn-sm" href="/login">Iniciar sesión</a>
+        <a class="btn btn-primary btn-sm" href="/register">Crear cuenta</a>
+      }
+    </div>
+  </div>
+</header>
+@code {
+  private async Task Logout()
+  {
+    try { await BrowserAuthStore.ClearAsync(); }
+    catch (JSException) { /* Siempre cerrar la sesión de esta pestaña. */ }
+    finally { AuthSession.SignOut(); Nav.NavigateTo("/"); }
+  }
+}

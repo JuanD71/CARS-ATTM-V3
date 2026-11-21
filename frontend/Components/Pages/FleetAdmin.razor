@@ -1,0 +1,123 @@
+@page "/flota-admin"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+<PageTitle>Administrar flota | Cars ATTM</PageTitle>
+@if (Session.Role != "admin")
+{
+  <div class="empty-state"><h2>Acceso exclusivo del administrador</h2><p>Tu perfil no tiene autorización para modificar los vehículos.</p><a href="/" class="btn btn-primary">Volver al inicio</a></div>
+}
+else
+{
+<div class="page-heading fleet-admin-head"><div><span class="eyebrow">PANEL ADMINISTRATIVO · INVENTARIO</span><h1>Gestión de flota</h1><p>Controla las fichas, las tarifas y el estado operativo de cada vehículo. Cada modificación queda registrada en el historial administrativo.</p></div><button class="btn btn-primary" @onclick="NewCar">+ Agregar vehículo</button></div>
+<div class="stats-grid fleet-admin-stats">
+ <div class="stat-card"><span>TOTAL DE VEHÍCULOS</span><strong>@vehicles.Count</strong><small>Incluye unidades retiradas</small></div>
+ <div class="stat-card"><span>DISPONIBLES</span><strong>@vehicles.Count(v => v.Estado=="DISPONIBLE")</strong><small>Visibles en el catálogo</small></div>
+ <div class="stat-card"><span>EN MANTENIMIENTO</span><strong>@vehicles.Count(v => v.Estado=="MANTENIMIENTO")</strong><small>Ocultos a nuevos alquileres</small></div>
+ <div class="stat-card"><span>RETIRADOS</span><strong>@vehicles.Count(v => v.Estado=="RETIRADO")</strong><small>Historial conservado</small></div>
+</div>
+@if (!string.IsNullOrEmpty(error)) { <div class="alert alert-danger" role="alert">@error</div> }
+@if (!string.IsNullOrEmpty(info)) { <div class="alert alert-success" role="status">@info</div> }
+@if (showForm)
+{
+ <section class="fleet-admin-editor" aria-label="Editar vehículo">
+  <div class="fleet-editor-heading"><div><span class="eyebrow">@(editId is null ? "NUEVA UNIDAD" : "ACTUALIZAR FICHA")</span><h2>@(editId is null ? "Registrar un vehículo" : "Editar vehículo #"+editId)</h2><p>Todos los campos se almacenan en la base de Inventario.</p></div><button class="btn btn-outline-dark" @onclick="CancelEdit">Cancelar</button></div>
+  <div class="fleet-editor-layout">
+   <div class="fleet-form-grid">
+    <label>Placa<input class="form-control" maxlength="8" @bind="edit.Placa" /></label>
+    <label>Marca<input class="form-control" maxlength="45" @bind="edit.Marca" /></label>
+    <label>Modelo / línea<input class="form-control" maxlength="60" @bind="edit.Linea" /></label>
+    <label>Año<input type="number" min="2000" max="2100" class="form-control" @bind="edit.Modelo" /></label>
+    <label>Categoría<select class="form-select" @bind="edit.Categoria"><option>SUV</option><option>Sedán</option><option>Compacto</option><option>Pickup</option><option>Premium</option><option>Eléctrico</option><option>Van</option></select></label>
+    <label>Combustible<select class="form-select" @bind="edit.Combustible"><option>Gasolina</option><option>Diésel</option><option>Híbrido</option><option>Eléctrico</option></select></label>
+    <label>Transmisión<select class="form-select" @bind="edit.Transmision"><option>Automática</option><option>Manual</option></select></label>
+    <label>Color<input class="form-control" maxlength="25" @bind="edit.Color" /></label>
+    <label>Pasajeros<input type="number" min="2" max="15" class="form-control" @bind="edit.Puestos" /></label>
+    <label>Maletas<input type="number" min="0" max="10" class="form-control" @bind="edit.Maletas" /></label>
+    <label>Tarifa diaria (COP)<input type="number" min="1" step="1000" class="form-control" @bind="edit.PrecioDia" /></label>
+    <label>Fotografía del vehículo (catálogo existente)<select class="form-select" @bind="edit.ImagenUrl">
+      @if(edit.ImagenUrl.StartsWith("/uploads/vehicles/")){<option value="@edit.ImagenUrl">Foto personalizada actual</option>}
+      @foreach (var i in Enumerable.Range(1,40)) { var imagePath=$"/vehicles/car-{i:00}.webp"; <option value="@imagePath">Imagen @i</option> }
+    </select></label>
+    <label>Cargar imagen de portada (JPG, PNG o WebP, máx. 5 MB)
+      <InputFile OnChange="UploadVehiclePhotoAsync" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+    </label>
+    <label class="full-width">Descripción<textarea class="form-control" rows="3" maxlength="2000" @bind="edit.Descripcion"></textarea></label>
+    <div class="full-width fleet-editor-actions"><button class="btn btn-primary" disabled="@working" @onclick="SaveAsync">@(working ? "Guardando..." : editId is null ? "Guardar vehículo" : "Guardar cambios")</button><span>Solo las cuentas administradoras pueden guardar estas modificaciones.</span></div>
+   </div>
+   <div class="fleet-editor-photo"><img src="@edit.ImagenUrl" alt="Vista previa de imagen ilustrativa"/><strong>Vista previa</strong><small>Selecciona una imagen existente o carga tu propia fotografía. La fotografía queda almacenada en un volumen Docker persistente.</small>
+      <small>Depósito fijo para este vehículo: $@((edit.PrecioDia*4).ToString("N0")) COP.</small></div>
+  </div>
+ </section>
+}
+@if(pendingVehicle is not null)
+{
+ <div class="fleet-confirm-banner" role="alert"><div><strong>¿Confirmar cambio de estado?</strong><p>@pendingVehicle.Marca @pendingVehicle.Linea · @pendingVehicle.Placa → @StatusName(pendingStatus). La operación quedará registrada.</p></div><label class="fleet-status-note">Motivo u observación <input class="form-control" maxlength="180" @bind="statusReason" placeholder="Ej. Revisión preventiva, próxima inspección" /></label><div class="action-buttons"><button class="btn btn-primary btn-sm" disabled="@working" @onclick="ConfirmStatusAsync">Confirmar</button><button class="btn btn-outline-dark btn-sm" @onclick="CancelStatus">Cancelar</button></div></div>
+}
+<section class="admin-section fleet-admin-table"><div class="fleet-section-top"><div><span class="eyebrow">INVENTARIO EN TIEMPO REAL</span><h2>Vehículos registrados</h2><p>El mantenimiento y el retiro impiden nuevas reservas. No se permiten si existen reservas activas o futuras.</p></div><div class="fleet-search"><input class="form-control" placeholder="Buscar por placa, marca o modelo" @bind="search" @bind:event="oninput"/><select class="form-select" @bind="statusFilter" aria-label="Filtrar por estado"><option value="TODOS">Todos los estados</option><option value="DISPONIBLE">Disponibles</option><option value="MANTENIMIENTO">Mantenimiento</option><option value="RETIRADO">Retirados</option></select><button class="btn btn-outline-dark" disabled="@working" @onclick="LoadAsync">Actualizar</button></div></div>
+@if(loading) { <p class="loading-state">Cargando inventario...</p> }
+else if(Filtered.Count==0) { <p class="muted">No hay vehículos que coincidan con la búsqueda.</p> }
+else { <div class="fleet-table-scroll"><table class="fleet-admin-table-grid"><thead><tr><th>Vehículo</th><th>Identificación</th><th>Tarifa / día</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+@foreach(var v in Filtered)
+{
+<tr><td><div class="fleet-row-car"><img src="@(v.ImagenUrl ?? "/vehicles/car-01.webp")" alt="Vehículo ilustrativo"/><div><strong>@v.Marca @v.Linea</strong><small>@v.Modelo · @v.Categoria · @v.Transmision</small></div></div></td><td><b>@v.Placa</b><small class="fleet-id">ID #@v.Id</small></td><td><strong>$@v.PrecioDia.ToString("N0")</strong><small>COP / día · depósito $@((v.PrecioDia*4).ToString("N0"))</small></td><td><span class="fleet-status @(v.Estado=="DISPONIBLE" ? "is-available" : v.Estado=="MANTENIMIENTO" ? "is-maintenance" : "is-retired")">@StatusName(v.Estado)</span></td><td><div class="fleet-row-actions">
+@if(v.Estado!="RETIRADO") { <button class="fleet-action-button" disabled="@working" @onclick="() => EditCar(v)">Editar</button> }
+else { <span class="muted">Archivado</span> }
+@if(v.Estado!="DISPONIBLE") { <button class="fleet-action-button success" disabled="@working" @onclick="() => RequestStatus(v, Available)">Habilitar</button> }
+@if(v.Estado=="DISPONIBLE") { <button class="fleet-action-button warning" disabled="@working" @onclick="() => RequestStatus(v, Maintenance)">Mantenimiento</button> }
+@if(v.Estado!="RETIRADO") { <button class="fleet-action-button danger" disabled="@working" @onclick="() => RequestStatus(v, Retired)">Retirar</button> }
+</div></td></tr>
+}
+</tbody></table></div>}
+</section>
+<section class="admin-section fleet-history"><div class="fleet-section-top"><div><span class="eyebrow">CONTROL DE CAMBIOS</span><h2>Actividad reciente de la flota</h2><p>Últimos movimientos realizados por usuarios administradores.</p></div></div>
+@if(history.Count==0) { <p class="muted">No hay modificaciones administrativas registradas aún.</p> }
+else { <div class="fleet-history-list">@foreach(var m in history.Take(20)){<div><span class="history-icon">✓</span><div><strong>@m.Accion · Vehículo #@m.VehiculoId</strong><small>@StatusName(m.EstadoAnterior) → @StatusName(m.EstadoNuevo) · Admin @m.AdministradorId</small></div><time>@m.RegistradoEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</time></div>}</div> }
+</section>
+}
+@code {
+ private const string Available="DISPONIBLE",Maintenance="MANTENIMIENTO",Retired="RETIRADO";
+ private List<Vehicle> vehicles=[]; private List<InventoryMovement> history=[];
+ private string search="",statusFilter="TODOS",statusReason="",error="",info="";
+ private bool loading=true,working,showForm=false;
+ private int? editId;
+ private Vehicle? pendingVehicle;
+ private string pendingStatus="";
+ private VehicleEditor edit=new();
+ private List<Vehicle> Filtered=>vehicles.Where(v=>statusFilter=="TODOS" || v.Estado==statusFilter).Where(v=>string.IsNullOrWhiteSpace(search) ||
+    ($"{v.Placa} {v.Marca} {v.Linea} {v.Categoria} {v.Modelo}").Contains(search,StringComparison.OrdinalIgnoreCase)).ToList();
+ protected override Task OnInitializedAsync()=>LoadAsync();
+ private async Task LoadAsync(){if(Session.Role!="admin")return;loading=true;error="";
+   try { vehicles=await Api.AdminVehiclesAsync();history=await Api.InventoryHistoryAsync(); }
+   catch(Exception e) {error=e.Message;} finally{loading=false;}}
+ private void NewCar(){editId=null;edit=new VehicleEditor();showForm=true;info=error="";}
+ private void EditCar(Vehicle v){editId=v.Id;edit=VehicleEditor.From(v);showForm=true;info=error="";}
+ private void CancelEdit(){showForm=false;editId=null;}
+ private async Task UploadVehiclePhotoAsync(InputFileChangeEventArgs ev){
+   error=info="";working=true;
+   try{
+     var response=await Api.UploadVehicleImageAsync(ev.File);
+     edit.ImagenUrl=response.ImagenUrl;
+     info="Fotografía cargada. Guarda la ficha del vehículo para aplicarla al catálogo.";
+   }catch(Exception e){error=e.Message;}finally{working=false;}
+ }
+ private static string StatusName(string? status)=>status switch {
+    "DISPONIBLE"=>"Disponible","MANTENIMIENTO"=>"Mantenimiento","RETIRADO"=>"Retirado",null=>"Nuevo",_=>status};
+ private async Task SaveAsync(){if(Session.Role!="admin")return;
+   error=info="";
+   if(string.IsNullOrWhiteSpace(edit.Placa) || string.IsNullOrWhiteSpace(edit.Marca) ||
+      string.IsNullOrWhiteSpace(edit.Linea) || edit.PrecioDia<=0 || edit.Modelo<2000 ||
+      edit.Puestos<2 || edit.Puestos>15 || edit.Maletas<0){error="Completa correctamente los datos del vehículo.";return;}
+   working=true;
+   try {if(editId.HasValue)await Api.UpdateVehicleAsync(editId.Value,edit);
+        else await Api.CreateVehicleAsync(edit);
+        showForm=false;info="La ficha fue guardada correctamente en Inventario.";await LoadAsync(); }
+   catch(Exception e){error=e.Message;}finally{working=false;}}
+ private void RequestStatus(Vehicle v,string status){pendingVehicle=v;pendingStatus=status;statusReason="";error=info="";}
+ private void CancelStatus(){pendingVehicle=null;pendingStatus="";statusReason="";}
+ private async Task ConfirmStatusAsync(){if(pendingVehicle is not null)await ChangeStatusAsync(pendingVehicle,pendingStatus);}
+ private async Task ChangeStatusAsync(Vehicle v,string status){if(Session.Role!="admin")return;error=info="";working=true;
+    try {await Api.ChangeVehicleStatusAsync(v.Id,status,string.IsNullOrWhiteSpace(statusReason) ? $"Cambio administrativo desde {v.Estado} a {status}" : statusReason.Trim());
+         info=$"{v.Marca} {v.Linea}: nuevo estado {StatusName(status).ToLowerInvariant()}.";CancelStatus();await LoadAsync();}
+    catch(Exception e){error=e.Message;}finally{working=false;}}
+}

@@ -1,0 +1,39 @@
+.env
+**/__pycache__/
+**/.pytest_cache/
+**/.venv/
+**/bin/
+**/obj/
+*.pyc
+/tools/cloudflared.exe
+USUARIOS_Y_CLAVES_PRUEBA.txt
+backups/
+
+# Credenciales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+USUARIOS_Y_CLAVES_PRUEBA.txt
+
+# Copias y respaldos
+COPIA_SEGURIDAD_*/
+backups/
+*.dump
+*.backup
+*.zip
+
+# Archivo duplicado
+/VehicleConversationService.cs
+
+# Archivos temporales
+**/__pycache__/
+**/.pytest_cache/
+**/bin/
+**/obj/
+*.pyc
+/services/usuarios-service/database/init/02_seed.sql
+
+/README.md
+/docs/

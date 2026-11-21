@@ -1,0 +1,62 @@
+@page "/panel"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+<PageTitle>Centro de control | Cars ATTM</PageTitle>
+@if (Session.Role != "admin")
+{
+  <div class="empty-state"><h2>Acceso reservado</h2><p>Solo el administrador puede consultar los indicadores operativos.</p></div>
+}
+else
+{
+  <section class="command-hero">
+    <div><span class="command-eyebrow"><span class="command-live"></span> CENTRO DE OPERACIONES · CARS ATTM</span>
+      <h1>Tu operación, <em>bajo control.</em></h1>
+      <p>Consulta las unidades de la flota, controla su disponibilidad y administra solicitudes desde un solo lugar. Los indicadores se obtienen de los microservicios.</p>
+      <div class="command-actions"><a class="btn btn-light" href="/flota-admin">Administrar vehículos ↗</a><a class="btn command-outline" href="/admin">Revisar solicitudes</a></div>
+    </div>
+    <div class="command-illustration"><img src="/vehicles/car-09.webp" alt="Vehículo de la flota Cars ATTM" /></div>
+  </section>
+  @if (!string.IsNullOrWhiteSpace(error)) { <div class="alert alert-warning mt-3" role="alert">@error</div> }
+  <div class="control-heading"><div><span class="eyebrow">INDICADORES OPERATIVOS</span><h2>Estado general</h2><p>Datos recuperados de los servicios de Inventario, Usuarios y Órdenes.</p></div><button class="btn btn-outline-dark btn-sm" @onclick="LoadAsync" disabled="@loading">Actualizar cifras ↻</button></div>
+  @if(loading) { <div class="loading-state">Consultando los microservicios...</div> }
+  else {
+  <div class="control-metrics">
+    <article><div class="metric-icon">▦</div><span>Vehículos registrados</span><strong>@fleet.Count</strong><small>Unidades de la plataforma</small></article>
+    <article><div class="metric-icon green">✓</div><span>Flota disponible</span><strong>@fleet.Count(x=>x.Estado=="DISPONIBLE")</strong><small>Se ofrece en el catálogo</small></article>
+    <article><div class="metric-icon amber">⚙</div><span>En mantenimiento</span><strong>@fleet.Count(x=>x.Estado=="MANTENIMIENTO")</strong><small>No admite nuevas reservas</small></article>
+    <article><div class="metric-icon dark">♙</div><span>Usuarios registrados</span><strong>@users.Count</strong><small>Clientes, asesores y admin.</small></article>
+  </div>
+  <div class="control-columns">
+    <section class="control-card"><div class="control-card-head"><div><span class="eyebrow">ACTIVIDAD</span><h3>Movimientos de alquiler</h3></div><a href="/orders">Ver todos →</a></div>
+      <div class="control-order-stats"><div><strong>@orders.Count</strong><span>Órdenes totales</span></div><div><strong>@orders.Count(x=>x.Estado=="PAGO_SOLICITADO")</strong><span>Solicitudes en revisión</span></div><div><strong>@orders.Count(x=>x.Estado=="EN_CURSO")</strong><span>Alquileres en curso</span></div></div>
+      @if(orders.Count==0){<div class="control-blank"><strong>Listo para recibir tu primera reserva</strong><p>Al iniciar con datos nuevos, las órdenes permanecen vacías hasta que un cliente solicite un alquiler.</p></div>}
+      else {<div class="control-recent">@foreach(var o in orders.OrderByDescending(x=>x.CreadaEn).Take(4)){<div><span>#@o.Id · Cliente @o.UsuarioId</span><strong>@o.Total.ToString("N0") COP</strong><small>@o.Estado</small></div>}</div>}
+    </section>
+    <section class="control-card"><div class="control-card-head"><div><span class="eyebrow">ACCESOS DIRECTOS</span><h3>Administrar la plataforma</h3></div></div>
+      <a class="control-shortcut" href="/flota-admin"><span class="shortcut-ico">▧</span><span><strong>Inventario y mantenimiento</strong><small>Crear, editar, habilitar o retirar vehículos</small></span><b>↗</b></a>
+      <a class="control-shortcut" href="/admin"><span class="shortcut-ico">◈</span><span><strong>Aprobaciones y pagos</strong><small>Validar solicitudes de pago y multas</small></span><b>↗</b></a>
+      <a class="control-shortcut" href="/usuarios-admin"><span class="shortcut-ico">♙</span><span><strong>Usuarios y permisos</strong><small>Consultar cuentas, bloquear o habilitar</small></span><b>↗</b></a>
+      <a class="control-shortcut" href="/catalog"><span class="shortcut-ico">⌕</span><span><strong>Vista del catálogo</strong><small>Ver los vehículos publicados</small></span><b>↗</b></a>
+    </section>
+  </div>
+  <section class="control-card control-fleet-preview"><div class="control-card-head"><div><span class="eyebrow">GESTIÓN DE INVENTARIO</span><h3>Últimos vehículos registrados</h3></div><a href="/flota-admin">Gestionar flota →</a></div>
+    <div class="control-preview-grid">@foreach(var v in fleet.OrderByDescending(x=>x.Id).Take(4)){
+      <article><img src="@(v.ImagenUrl ?? "/vehicles/car-01.webp")" alt="Imagen ilustrativa de @v.Marca @v.Linea" /><div><strong>@v.Marca @v.Linea</strong><small>@v.Modelo · @v.Categoria</small><span class="fleet-status @(v.Estado=="DISPONIBLE" ? "is-available" : v.Estado=="MANTENIMIENTO" ? "is-maintenance" : "is-retired")">@(v.Estado=="DISPONIBLE" ? "Disponible" : v.Estado=="MANTENIMIENTO" ? "Mantenimiento" : "Retirado")</span></div></article>
+    }</div>
+  </section>
+  }
+}
+@code {
+  private List<Vehicle> fleet=[];
+  private List<OrderDto> orders=[];
+  private List<UserDto> users=[];
+  private bool loading=true;
+  private string error="";
+  protected override Task OnInitializedAsync()=>LoadAsync();
+  private async Task LoadAsync(){if(Session.Role!="admin")return;loading=true;error="";
+    try {fleet=await Api.AdminVehiclesAsync();orders=await Api.OrdersAsync(true);users=await Api.UsersAsync();}
+    catch(Exception ex){error="Uno de los servicios no respondió: "+ex.Message;}
+    finally{loading=false;}
+  }
+}

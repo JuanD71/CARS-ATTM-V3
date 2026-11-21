@@ -1,0 +1,158 @@
+@page "/orders"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+<PageTitle>Alquileres | Cars ATTM</PageTitle>
+<div class="page-heading"><div><span class="eyebrow">TRAZABILIDAD</span><h1>@(Session.Role=="cliente" ? "Mis alquileres" : "Gestión de alquileres")</h1><p>Consulta el estado de tus solicitudes y el seguimiento de cada alquiler.</p></div><button class="btn btn-outline-dark" @onclick="LoadAsync">Actualizar</button></div>
+@if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+@if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info</div>}
+@if(loading){<p class="loading-state">Consultando órdenes...</p>}
+else if(orders.Count==0){<div class="empty-state"><h3>No hay órdenes registradas</h3><p>Cuando se genere una solicitud aparecerá en este listado.</p></div>}
+else {<div class="orders-stack">@foreach(var order in orders){<article class="order-card"><header><div><span class="eyebrow">ORDEN #@order.Id</span><h3>@order.Total.ToString("N0") COP</h3><small>Alquiler: @order.AlquilerTotal.ToString("N0") COP · Depósito fijo: @order.DepositoTotal.ToString("N0") COP</small><small>Cliente: @order.UsuarioId · @order.CreadaEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small></div><span class="status-pill">@Label(order.Estado)</span></header>
+<div class="order-lines">@foreach(var item in order.Items){<p class="order-line-item"><img class="order-car-thumb" src="@(item.ImagenUrl ?? $"/vehicles/car-{((item.VehiculoId - 1) % 40) + 1:00}.webp")" alt="Vehículo" /><strong>@item.Descripcion</strong> · @item.FechaInicio al @item.FechaFin <span>@item.Subtotal.ToString("N0") COP</span></p>}</div>
+@if(Session.Role=="cliente" && order.Estado=="PAGADA")
+{<div class="pickup-note"><strong>Recogida del vehículo</strong><span>Podrás recogerlo a partir del siguiente día hábil en la sucursal más cercana, dentro de su horario de atención. Coordina la entrega con Cars ATTM.</span></div>}
+<div class="order-bottom"><div><small>Pago: <strong>@(order.SolicitudPago?.Estado ?? "Sin solicitud")</strong></small><small>Revisión y confirmación a cargo del administrador</small></div>
+@if(order.Estado=="DEVUELTA")
+{<small>Depósito: @(order.DepositoDevuelto ? "Reintegro registrado" : "Devolución pendiente") · $@order.ValorDepositoDevuelto.ToString("N0") COP</small>}
+@if(Session.Role=="admin" && order.Estado=="DEVUELTA" && !order.DepositoDevuelto && order.DepositoTotal>0)
+{
+  @if(refundOrderId==order.Id){
+    <div class="return-controls"><label>Constancia de reintegro (manual, sin transferencia automática)<input class="form-control form-control-sm" maxlength="500" @bind="refundNote" placeholder="Fecha y soporte de la devolución" /></label>
+      <button class="btn btn-primary btn-sm" disabled="@working" @onclick="() => RefundAsync(order.Id)">Confirmar devolución del depósito</button>
+      <button class="btn btn-outline-dark btn-sm" @onclick="() => refundOrderId = null">Cancelar</button></div>
+  }else{
+    <button class="btn btn-outline-dark btn-sm" disabled="@working" @onclick="() => StartRefund(order.Id)">Registrar reintegro del depósito pendiente</button>
+  }
+}
+@if(Session.Role!="cliente" && order.Estado=="DEVUELTA" && order.Incumplimiento)
+{<button class="btn btn-outline-danger btn-sm" disabled="@working" @onclick="() => BlockUserAsync(order.Id)">Bloquear cliente</button>}
+@if(Session.Role!="cliente" && order.Estado=="PAGADA"){
+  <button class="btn btn-primary btn-sm" disabled="@working" @onclick="() => OpenForm(order, true)">Registrar entrega y peritaje</button>
+}
+@if(Session.Role!="cliente" && order.Estado=="EN_CURSO"){
+  <button class="btn btn-primary btn-sm" disabled="@working" @onclick="() => OpenForm(order, false)">Registrar devolución y peritaje</button>
+}
+</div>
+@if(activeOrderId==order.Id && Session.Role!="cliente")
+{
+<section class="peritaje-panel">
+  <h3>@(isDelivery ? "Acta de entrega" : "Acta de devolución") · Orden #@order.Id</h3>
+  <p>Registra el estado de cada vehículo. El peritaje queda guardado con fecha y responsable.</p>
+  <div class="deposit-control">
+    <strong>Depósito de garantía: $@order.DepositoTotal.ToString("N0") COP</strong>
+    @if(isDelivery){
+      <label><input type="checkbox" @bind="depositReceived" /> Confirmo que el cliente entregó el depósito dentro del pago total aprobado.</label>
+    } else {
+      <label><input type="checkbox" @bind="depositRefunded" /> Confirmo la devolución íntegra del depósito al cliente.</label>
+      <small>Si no se devuelve todavía, deja la casilla desmarcada y explica el motivo. El registro no realiza una transferencia bancaria real.</small>
+    }
+    <label>Observación sobre el depósito<input class="form-control" maxlength="500" @bind="depositNote" placeholder="Confirmación, retención pendiente o devolución" /></label>
+  </div>
+  @foreach(var item in order.Items)
+  {
+    var form=inspections.First(x=>x.VehiculoId==item.VehiculoId);
+    <fieldset class="inspection-box">
+      <legend>@item.Descripcion · Vehículo #@item.VehiculoId</legend>
+      <div class="inspection-grid">
+        <label>Kilometraje<input class="form-control" type="number" min="0" max="2000000" @bind="form.Kilometraje" /></label>
+        <label>Combustible<select class="form-select" @bind="form.NivelCombustible"><option value="VACIO">Vacío</option><option value="CUARTO">1/4</option><option value="MEDIO">1/2</option><option value="TRES_CUARTOS">3/4</option><option value="LLENO">Lleno</option></select></label>
+        <label>Carrocería<select class="form-select" @bind="form.Carroceria">@foreach(var v in estados){<option value="@v">@v</option>}</select></label>
+        <label>Interior<select class="form-select" @bind="form.Interior">@foreach(var v in estados){<option value="@v">@v</option>}</select></label>
+        <label>Llantas<select class="form-select" @bind="form.Llantas">@foreach(var v in estados){<option value="@v">@v</option>}</select></label>
+        <label>Luces<select class="form-select" @bind="form.Luces">@foreach(var v in estados){<option value="@v">@v</option>}</select></label>
+        <label class="inspection-wide">Observaciones / novedades<textarea class="form-control" rows="2" maxlength="1000" @bind="form.Observaciones"></textarea></label>
+      </div>
+      @if(!isDelivery)
+      {
+        <label class="mt-2"><input type="checkbox" @bind="form.ReportarDano" /> Registrar daños en este vehículo (requiere validación del administrador)</label>
+        @if(form.ReportarDano){
+          <div class="inspection-grid damage-entry">
+            <label>Tipo de daño<select class="form-select" @bind="form.TipoDano"><option value="CARROCERIA">Carrocería</option><option value="INTERIOR">Interior</option><option value="LLANTAS">Llantas</option><option value="LUCES">Luces</option><option value="MECANICO">Mecánico</option><option value="OTRO">Otro</option></select></label>
+            <label>Gravedad<select class="form-select" @bind="form.SeveridadDano"><option value="LEVE">Leve</option><option value="MODERADO">Moderado</option><option value="GRAVE">Grave</option></select></label>
+            <label>Costo estimado COP (referencia, no cobro)<input class="form-control" type="number" min="0" @bind="form.CostoDano" /></label>
+            <label class="inspection-wide">Descripción detallada del daño<textarea class="form-control" maxlength="1000" rows="2" @bind="form.DescripcionDano"></textarea></label>
+          </div>
+        }
+      }
+    </fieldset>
+  }
+  @if(!isDelivery){<label class="inspection-wide">Observaciones generales de devolución<textarea class="form-control" rows="2" maxlength="800" @bind="returnNote"></textarea></label>}
+  <div class="action-buttons mt-3"><button class="btn btn-primary" disabled="@working" @onclick="() => SaveInspectionAsync(order)">@(working ? "Guardando..." : isDelivery ? "Confirmar entrega" : "Confirmar devolución")</button><button class="btn btn-outline-dark" disabled="@working" @onclick="CloseForm">Cancelar</button></div>
+</section>
+}
+@if(order.Inspecciones?.Count>0 || order.ReportesDanos?.Count>0)
+{
+  <details class="inspection-history"><summary>Consultar peritajes y reportes de daños</summary>
+    @foreach(var item in order.Inspecciones ?? []){
+      <p><strong>@item.Tipo · Vehículo #@item.VehiculoId</strong> — @item.Kilometraje km · combustible @item.NivelCombustible · carrocería @item.Carroceria · interior @item.Interior · llantas @item.Llantas · luces @item.Luces. @item.Observaciones</p>
+    }
+    @foreach(var d in order.ReportesDanos ?? []){
+      <p><strong>Daño del vehículo #@d.VehiculoId — @d.Estado</strong>: @d.Tipo / @d.Severidad · @d.Descripcion</p>
+    }
+  </details>
+}
+</article>}</div>}
+@code {
+  private readonly string[] estados=["EXCELENTE","BUENO","REGULAR","DEFICIENTE"];
+  private List<OrderDto> orders=[];
+  private string error="",info="",returnNote="",depositNote="";
+  private bool loading=true,working,isDelivery,depositReceived,depositRefunded;
+  private int? activeOrderId, refundOrderId;
+  private string refundNote="";
+  private List<VehicleInspectionForm> inspections=[];
+  protected override Task OnInitializedAsync()=>LoadAsync();
+  private async Task LoadAsync(){loading=true;error="";
+    try{orders=await Api.OrdersAsync(Session.Role!="cliente");}
+    catch(Exception e){error=e.Message;}finally{loading=false;}}
+  private static string Label(string x)=>x switch{"PAGO_SOLICITADO"=>"Pago pendiente de aprobación","PAGADA"=>"Pago aprobado","EN_CURSO"=>"Alquiler en curso","DEVUELTA"=>"Devuelto","RECHAZADA"=>"Pago rechazado",_=>x};
+  private void OpenForm(OrderDto order,bool delivery){
+    activeOrderId=order.Id;isDelivery=delivery;
+    depositReceived=false;depositRefunded=false;depositNote=returnNote="";error=info="";
+    inspections=order.Items.Select(x=>new VehicleInspectionForm{VehiculoId=x.VehiculoId}).ToList();
+  }
+  private void CloseForm(){activeOrderId=null;inspections=[];}
+  private void StartRefund(int id){refundOrderId=id;refundNote="";error="";}
+  private async Task RefundAsync(int id){
+    if(refundNote.Trim().Length<5){error="Registra una observación del reintegro (mínimo 5 caracteres).";return;}
+    working=true;error="";
+    try{await Api.RefundDepositAsync(id,refundNote.Trim());info="Devolución del depósito registrada en la orden.";refundOrderId=null;await LoadAsync();}
+    catch(Exception e){error=e.Message;}finally{working=false;}
+  }
+  private async Task BlockUserAsync(long id){working=true;error="";
+    try{await Api.BlockClientForOrderAsync((int)id);info="Bloqueo por incumplimiento registrado en Usuarios.";}
+    catch(Exception e){error=e.Message;}finally{working=false;}}
+  private async Task SaveInspectionAsync(OrderDto order){
+    error=info="";
+    if(inspections.Count!=order.Items.Count){error="Debes registrar cada vehículo.";return;}
+    if(inspections.Any(x=>x.Kilometraje<0 || x.Kilometraje>2000000)){
+      error="Revisa los kilómetros de cada vehículo.";return;
+    }
+    working=true;
+    try{
+      if(isDelivery){
+        if(!depositReceived)throw new InvalidOperationException("Debes confirmar la recepción del depósito antes de entregar.");
+        await Api.DeliverAsync(order.Id,new DeliveryForm{
+          DepositoRecibido=true,ObservacionDeposito=depositNote,Inspecciones=inspections});
+        info="Entrega y peritajes guardados; depósito recibido registrado.";
+      }else{
+        if(!depositRefunded && string.IsNullOrWhiteSpace(depositNote))
+          throw new InvalidOperationException("Explica el motivo por el que no se devolvió el depósito.");
+        var damaged=inspections.Where(x=>x.ReportarDano).ToList();
+        if(damaged.Any(x=>x.DescripcionDano.Trim().Length<10))
+          throw new InvalidOperationException("Describe cada daño con al menos 10 caracteres.");
+        await Api.ReturnAsync(order.Id,new ReturnForm{
+          DepositoDevuelto=depositRefunded,
+          ValorDepositoDevuelto=depositRefunded ? order.DepositoTotal : 0,
+          ObservacionDeposito=depositNote,Observacion=returnNote,
+          Inspecciones=inspections,
+          Danos=damaged.Select(x=>new DamageForm{VehiculoId=x.VehiculoId,
+            Tipo=x.TipoDano,Severidad=x.SeveridadDano,
+            Descripcion=x.DescripcionDano,CostoEstimado=x.CostoDano}).ToList()
+        });
+        info="Devolución y peritajes guardados. Los daños reportados requieren verificación del administrador.";
+      }
+      CloseForm();await LoadAsync();
+    }catch(Exception e){error=e.Message;}finally{working=false;}
+  }
+}

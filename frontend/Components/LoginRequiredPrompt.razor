@@ -1,0 +1,59 @@
+@* Los enlaces del aviso son navegación HTML real: siguen funcionando aunque
+   el circuito SignalR de Blazor se desconecte temporalmente. *@
+@if (Visible)
+{
+    <div class="@(Inline ? "login-required-route" : "login-required-backdrop")"
+         role="presentation" data-login-prompt="true"
+         @onclick="CancelAsync">
+        <section class="login-required-dialog" role="dialog" aria-modal="@(!Inline)"
+                 aria-labelledby="login-required-heading" aria-describedby="login-required-description"
+                 @onclick:stopPropagation="true">
+            @if (Inline)
+            {
+                <a class="login-required-close" href="/catalog" data-enhance-nav="false"
+                   aria-label="Cerrar aviso e ir al catálogo">×</a>
+            }
+            else
+            {
+                <button type="button" class="login-required-close" aria-label="Cerrar aviso de inicio de sesión"
+                        data-login-prompt-dismiss="true" @onclick="CancelAsync">×</button>
+            }
+            <span class="eyebrow">CARS ATTM · ACCESO A TU CUENTA</span>
+            <h2 id="login-required-heading">¿Quieres iniciar sesión?</h2>
+            <p id="login-required-description">Para @ActionText necesitas iniciar sesión con tu cuenta. Puedes seguir explorando nuestros vehículos sin registrarte.</p>
+            <div class="login-required-actions">
+                @if (Inline)
+                {
+                    <a href="/catalog" data-enhance-nav="false" class="btn btn-outline-dark">Seguir explorando</a>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-outline-dark" data-login-prompt-dismiss="true"
+                            @onclick="CancelAsync">Seguir explorando</button>
+                }
+                <a href="@LoginHref" data-enhance-nav="false" class="btn btn-primary">Iniciar sesión →</a>
+            </div>
+            <p class="login-required-register">¿Aún no tienes cuenta?
+                <a href="/register" data-enhance-nav="false" class="login-required-register-button">Crear cuenta</a>
+            </p>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public bool Inline { get; set; }
+    [Parameter] public string ActionText { get; set; } = "continuar con esta acción";
+    [Parameter] public string ReturnUrl { get; set; } = "/";
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private Task CancelAsync() => OnCancel.InvokeAsync();
+
+    // Nunca redirigir automáticamente: solo se sigue el enlace que pulsa el usuario.
+    // El atributo data-enhance-nav=false fuerza navegación HTML completa y recupera
+    // un circuito Blazor desconectado, además de evitar bloqueos por interceptores.
+    private string LoginHref => "/login?returnUrl=" + Uri.EscapeDataString(SafeReturnUrl);
+    private string SafeReturnUrl => !string.IsNullOrWhiteSpace(ReturnUrl)
+        && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+        && !ReturnUrl.Contains('\\') ? ReturnUrl : "/";
+}

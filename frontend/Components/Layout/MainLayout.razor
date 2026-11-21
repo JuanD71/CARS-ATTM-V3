@@ -1,0 +1,62 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using CarsATTM_CustomerApp.Services
+@inject AuthSession AuthSession
+@inject LoginPrompt LoginPrompt
+@inject NavigationManager NavigationManager
+
+<div class="app-shell">
+  <NavMenu />
+  <main class="content-area">@Body</main>
+  <footer class="site-foot"><div>© 2026 Cars ATTM</div></footer>
+</div>
+<AssistantChatWidget />
+<LoginRequiredPrompt @key="LoginPrompt.Revision" Visible="@LoginPrompt.IsOpen"
+                     ActionText="@LoginPrompt.ActionText"
+                     ReturnUrl="@LoginPrompt.ReturnUrl" OnCancel="LoginPrompt.Dismiss" />
+
+@code {
+    private IDisposable? navigationHandler;
+
+    protected override void OnInitialized()
+    {
+        AuthSession.Changed += Refresh;
+        LoginPrompt.Changed += Refresh;
+    }
+
+    // El enrutador interactivo ya está disponible después del primer render.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            navigationHandler = NavigationManager.RegisterLocationChangingHandler(ConfirmProtectedNavigation);
+    }
+
+    private ValueTask ConfirmProtectedNavigation(LocationChangingContext context)
+    {
+        if (AuthSession.IsAuthenticated || !AuthSession.IsInitialized)
+            return ValueTask.CompletedTask;
+
+        var relative = NavigationManager.ToBaseRelativePath(context.TargetLocation);
+        if (LoginRequiredRoutes.TryDescribe(relative, out var action))
+        {
+            // Bloquea el cambio de página; solo el botón «Iniciar sesión» puede abrir /login.
+            context.PreventNavigation();
+            LoginPrompt.Request(action, "/" + relative);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private void Refresh()
+    {
+        if (AuthSession.IsAuthenticated && LoginPrompt.IsOpen)
+            LoginPrompt.Dismiss();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AuthSession.Changed -= Refresh;
+        LoginPrompt.Changed -= Refresh;
+        navigationHandler?.Dispose();
+    }
+}

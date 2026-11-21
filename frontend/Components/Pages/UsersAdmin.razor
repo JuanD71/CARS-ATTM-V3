@@ -1,0 +1,66 @@
+@page "/usuarios-admin"
+@using CarsATTM_CustomerApp.Services
+@inject AuthSession Session
+@inject CarsApi Api
+<PageTitle>Administrar usuarios | Cars ATTM</PageTitle>
+@if(Session.Role!="admin"){
+  <div class="empty-state"><h2>Acceso exclusivo del administrador</h2><a class="btn btn-primary" href="/">Volver</a></div>
+}else{
+  <div class="page-heading"><div><span class="eyebrow">ADMINISTRACIÓN · ACCESOS</span><h1>Usuarios y permisos</h1><p>Crea cuentas de vendedor y administra el acceso de clientes y vendedores.</p></div><span class="small-badge">Solo administrador</span></div>
+  <div class="stats-grid"><div class="stat-card"><span>CUENTAS</span><strong>@users.Count</strong><small>Registradas</small></div><div class="stat-card"><span>CLIENTES ACTIVOS</span><strong>@users.Count(u=>u.Rol=="cliente" && u.Activo)</strong><small>Con acceso al alquiler</small></div><div class="stat-card"><span>VENDEDORES</span><strong>@users.Count(u=>u.Rol=="vendedor")</strong><small>Entrega y devolución</small></div><div class="stat-card"><span>CUENTAS BLOQUEADAS</span><strong>@users.Count(u=>!u.Activo)</strong><small>Sin acceso temporal</small></div></div>
+  @if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+  @if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info</div>}
+  <section class="user-create-panel">
+    <div><span class="eyebrow">NUEVO ACCESO COMERCIAL</span><h2>Crear cuenta de vendedor</h2><p>Las cuentas de vendedor solo pueden ser creadas desde el perfil administrador.</p></div>
+    <div class="user-create-grid">
+      <label>Documento<input class="form-control" inputmode="numeric" @bind="sellerDocument" placeholder="Número de documento" /></label>
+      <label>Nombre completo<input class="form-control" @bind="sellerName" placeholder="Nombre y apellidos" /></label>
+      <label>Correo electrónico<input class="form-control" type="email" @bind="sellerEmail" placeholder="vendedor@carsattm.com" /></label>
+      <label>Contraseña<input class="form-control" type="password" @bind="sellerPassword" placeholder="Mínimo 8 caracteres" /></label>
+    </div>
+    <div class="user-create-actions"><button class="btn btn-primary" disabled="@working" @onclick="CreateSellerAsync">@(working?"Creando...":"Crear cuenta de vendedor")</button></div>
+  </section>
+  <section class="admin-section fleet-admin-table">
+    <div class="fleet-section-top"><div><span class="eyebrow">DIRECTORIO DE ACCESO</span><h2>Usuarios registrados</h2><p>El administrador puede bloquear, reactivar o eliminar cuentas de cliente y vendedor.</p></div><button class="btn btn-outline-dark" @onclick="LoadAsync" disabled="@working">Actualizar</button></div>
+    <div class="fleet-table-scroll"><table class="fleet-admin-table-grid"><thead><tr><th>Usuario</th><th>Documento</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+    @foreach(var u in users){<tr @key="u.Id"><td><strong>@u.Nombre</strong><small class="fleet-id">@u.Email</small></td><td>@u.Id</td><td><span class="fleet-status is-available">@RoleLabel(u.Rol)</span></td><td><span class="fleet-status @(u.Activo?"is-available":"is-retired")">@(u.Activo?"Activo":"Bloqueado")</span></td><td>
+      @if(u.Rol!="admin"){
+        <div class="user-row-actions">
+          <button class="fleet-action-button @(u.Activo?"danger":"success")" @onclick="() => ToggleAsync(u)" disabled="@working">@(u.Activo?"Bloquear":"Reactivar")</button>
+          @if(pendingDeleteId==u.Id){
+            <span class="delete-confirm-text">¿Eliminar a @u.Nombre?</span>
+            <button class="fleet-action-button danger" @onclick="() => DeleteAsync(u.Id)" disabled="@working">Confirmar</button>
+            <button class="fleet-action-button" @onclick="CancelDelete" disabled="@working">Cancelar</button>
+          }else{
+            <button class="fleet-action-button danger" @onclick="() => AskDelete(u)" disabled="@working">Eliminar</button>
+          }
+        </div>
+      }else{<span class="muted">Cuenta protegida</span>}
+    </td></tr>}
+    </tbody></table></div>
+  </section>
+  <div class="noticebar">El registro público crea únicamente cuentas de cliente. Las cuentas de vendedor se crean aquí. La eliminación de una cuenta no borra el historial de alquileres asociado.</div>
+}
+@code {
+  private List<UserDto> users=[];
+  private string error="",info="",sellerDocument="",sellerName="",sellerEmail="",sellerPassword="";
+  private bool working;
+  private long? pendingDeleteId;
+  protected override Task OnInitializedAsync()=>LoadAsync();
+  private async Task LoadAsync(){if(Session.Role!="admin")return;error="";try{users=await Api.UsersAsync();}catch(Exception e){error=e.Message;}}
+  private static string RoleLabel(string role)=>role switch{"admin"=>"Administrador","vendedor"=>"Vendedor",_=>"Cliente"};
+  private async Task CreateSellerAsync(){
+    error=info="";
+    if(!long.TryParse(sellerDocument,out var id)||id<=0){error="Escribe un documento válido.";return;}
+    if(sellerName.Trim().Length<3){error="Escribe el nombre completo del vendedor.";return;}
+    if(!sellerEmail.Contains('@')||!sellerEmail.Contains('.')){error="Escribe un correo electrónico válido.";return;}
+    if(sellerPassword.Length<8){error="La contraseña debe tener al menos 8 caracteres.";return;}
+    working=true;
+    try{var created=await Api.CreateSellerAsync(id,sellerName.Trim(),sellerEmail.Trim(),sellerPassword);info=$"Cuenta de vendedor creada para {created.Nombre}.";sellerDocument=sellerName=sellerEmail=sellerPassword="";await LoadAsync();}
+    catch(Exception e){error=e.Message;}finally{working=false;}
+  }
+  private async Task ToggleAsync(UserDto u){if(Session.Role!="admin"||u.Rol=="admin")return;working=true;error=info="";try{await Api.SetUserActiveAsync(u.Id,!u.Activo);info=$"Estado de {u.Nombre} actualizado.";await LoadAsync();}catch(Exception e){error=e.Message;}finally{working=false;}}
+  private void AskDelete(UserDto u){pendingDeleteId=u.Id;}
+  private void CancelDelete(){pendingDeleteId=null;}
+  private async Task DeleteAsync(long id){working=true;error=info="";try{await Api.DeleteUserAsync(id);info="Cuenta eliminada. El historial de alquileres se conserva.";pendingDeleteId=null;await LoadAsync();}catch(Exception e){error=e.Message;}finally{working=false;}}
+}

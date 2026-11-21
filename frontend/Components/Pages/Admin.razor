@@ -1,0 +1,257 @@
+@page "/admin"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+
+<PageTitle>Solicitudes | Cars ATTM</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <span class="eyebrow">CENTRO DE CONTROL</span>
+        <h1>Aprobaciones administrativas</h1>
+        <p>Las solicitudes de pago y las multas siempre llegan al administrador.</p>
+    </div>
+    <span class="small-badge">Acceso restringido</span>
+</div>
+
+@if (Session.Role != "admin")
+{
+    <div class="alert alert-danger">Esta sección es exclusiva del administrador.</div>
+}
+else
+{
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span>PAGOS DE ALQUILER PENDIENTES</span>
+            <strong>@payments.Count(p => p.Estado == "SOLICITADA")</strong>
+            <small>Solicitudes por revisar</small>
+        </div>
+        <div class="stat-card">
+            <span>MULTAS POR EVALUAR</span>
+            <strong>@fines.Count(f => f.Estado == "SOLICITADA")</strong>
+            <small>Aprobar o rechazar</small>
+        </div>
+        <div class="stat-card">
+            <span>PAGOS DE MULTAS PENDIENTES</span>
+            <strong>@fines.Count(f => f.Estado == "PAGO_SOLICITADO")</strong>
+            <small>Pendientes de revisión</small>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(info))
+    {
+        <div class="alert alert-success">@info</div>
+    }
+
+    <button class="btn btn-outline-dark mb-3" @onclick="LoadAsync" disabled="@working">
+        Actualizar solicitudes
+    </button>
+
+    <section class="admin-section">
+        <div class="admin-section-heading">
+            <div>
+                <span class="eyebrow">GESTIÓN DE PAGOS</span>
+                <h2>Solicitudes de pago de alquiler</h2>
+                <p>Revisa los datos de contacto y decide las solicitudes de pago asociadas a cada orden.</p>
+            </div>
+            <span class="admin-section-count">@payments.Count registros</span>
+        </div>
+
+        @if (payments.Count == 0)
+        {
+            <p class="muted">No existen pagos de alquiler registrados.</p>
+        }
+
+        @foreach (var p in payments)
+        {
+            <div class="approval-row">
+                <div>
+                    <strong>Orden #@p.OrdenId · @p.Valor.ToString("N0") COP (alquiler + depósito)</strong>
+                    <small>Cliente @p.UsuarioId · @p.SolicitadaEn.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                    <small>Correo: @(p.CorreoContacto ?? "No registrado") · Teléfono: @(p.TelefonoContacto ?? "No registrado") · Documento: @(p.DocumentoContacto ?? "No registrado")</small>
+                    <small>Cuenta asociada: @(p.Banco ?? "No registrada (orden anterior)") · @(p.CuentaUltimos4 is null ? "Sin referencia" : "****" + p.CuentaUltimos4) · Pago simulado sujeto a revisión</small>
+                </div>
+                <span class="status-pill">@p.Estado</span>
+
+                @if (p.Estado == "SOLICITADA")
+                {
+                    <div class="action-buttons">
+                        <button class="btn btn-primary btn-sm"
+                                disabled="@working"
+                                @onclick="() => DecidePaymentAsync(p.OrdenId, true)">
+                            Aceptar
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm"
+                                disabled="@working"
+                                @onclick="() => DecidePaymentAsync(p.OrdenId, false)">
+                            Rechazar
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="admin-section">
+        <div class="admin-section-heading">
+            <div>
+                <span class="eyebrow">GESTIÓN DE MULTAS</span>
+                <h2>Multas y solicitudes de pago</h2>
+                <p>Control de aprobación de multas y sus solicitudes de pago.</p>
+            </div>
+            <span class="admin-section-count">@fines.Count registros</span>
+        </div>
+
+        @if (fines.Count == 0)
+        {
+            <p class="muted">No existen multas registradas.</p>
+        }
+
+        @foreach (var f in fines)
+        {
+            var isPaymentRequest = f.Estado == "PAGO_SOLICITADO";
+
+            <div class="approval-row">
+                <div>
+                    <strong>Multa #@f.Id · @f.PrecioMulta.ToString("N0") COP</strong>
+                    <small>Orden @f.OrdenId · Cliente @f.UsuarioId · @f.Tipo · @f.Observacion</small>
+                </div>
+                <span class="status-pill">@f.Estado</span>
+
+                @if (f.Estado == "SOLICITADA" || isPaymentRequest)
+                {
+                    <div class="action-buttons">
+                        <button class="btn btn-primary btn-sm"
+                                disabled="@working"
+                                @onclick="() => DecideFineAsync(f.Id, true, isPaymentRequest)">
+                            Aceptar
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm"
+                                disabled="@working"
+                                @onclick="() => DecideFineAsync(f.Id, false, isPaymentRequest)">
+                            Rechazar
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+    <section class="admin-section">
+      <div class="admin-section-heading">
+        <div><span class="eyebrow">VERIFICACIÓN ADMINISTRATIVA</span><h2>Reportes de daños de vehículos</h2><p>El peritaje de devolución genera un reporte pendiente. Solo el administrador puede verificarlo antes de generar una solicitud de multa.</p></div>
+        <span class="admin-section-count">@damages.Count pendientes y revisados</span>
+      </div>
+      @if(damages.Count==0){<p class="muted">No hay daños reportados.</p>}
+      @foreach(var d in damages){
+        <div class="approval-row">
+          <div><strong>Reporte #@d.Id · Orden #@d.OrdenId · Vehículo #@d.VehiculoId</strong>
+            <small>@d.Tipo · @d.Severidad · @d.Estado · costo estimado $@d.CostoEstimado.ToString("N0") COP</small>
+            <p>@d.Descripcion</p>
+          </div>
+          <span class="status-pill">@d.Estado</span>
+          @if(d.Estado=="PENDIENTE"){
+            @if(reviewingDamageId==d.Id){
+              <div class="payment-contact-grid"><label>Observación de revisión (obligatoria)
+                <input class="form-control" maxlength="500" @bind="reviewNote" placeholder="Describe la verificación realizada" /></label>
+                <div class="action-buttons"><button class="btn btn-primary btn-sm" disabled="@working" @onclick="() => ReviewDamageAsync(d.Id,true)">Verificar daño</button>
+                  <button class="btn btn-outline-danger btn-sm" disabled="@working" @onclick="() => ReviewDamageAsync(d.Id,false)">Rechazar reporte</button>
+                  <button class="btn btn-outline-dark btn-sm" @onclick="() => reviewingDamageId = null">Cancelar</button></div></div>
+            }else{
+              <button class="btn btn-outline-dark btn-sm" @onclick="() => StartDamageReview(d.Id)">Revisar reporte</button>
+            }
+          }
+        </div>
+      }
+    </section>
+}
+
+@code {
+    private List<PaymentDto> payments = [];
+    private List<FineDto> fines = [];
+    private List<DamageDto> damages = [];
+    private int? reviewingDamageId;
+    private string reviewNote = "";
+    private bool working;
+    private string error = "";
+    private string info = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Session.Role != "admin")
+            return;
+
+        error = "";
+        try
+        {
+            payments = await Api.PaymentsAsync();
+            fines = await Api.FinesAsync(true);
+            damages = await Api.DamageReportsAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private async Task DecidePaymentAsync(int id, bool approve)
+    {
+        working = true;
+        error = "";
+        try
+        {
+            await Api.DecideOrderPaymentAsync(id, approve);
+            info = "Decisión de pago guardada correctamente.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private void StartDamageReview(int id){reviewingDamageId=id;reviewNote="";error="";}
+    private async Task ReviewDamageAsync(int id,bool approved){
+        error="";
+        if(reviewNote.Trim().Length<5){error="Explica la verificación o el rechazo del reporte (mínimo 5 caracteres).";return;}
+        working=true;
+        try{
+            await Api.VerifyDamageAsync(id,approved,reviewNote.Trim());
+            info=approved ? "Daño verificado: se registró solicitud de multa para revisión." : "Reporte de daños rechazado.";
+            reviewingDamageId=null;reviewNote="";await LoadAsync();
+        }catch(Exception ex){error=ex.Message;}finally{working=false;}
+    }
+
+    private async Task DecideFineAsync(int id, bool approve, bool payment)
+    {
+        working = true;
+        error = "";
+        try
+        {
+            if (payment)
+                await Api.DecideFinePaymentAsync(id, approve);
+            else
+                await Api.DecideFineAsync(id, approve);
+
+            info = "Decisión administrativa guardada correctamente.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+}

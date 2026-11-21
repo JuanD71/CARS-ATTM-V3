@@ -1,0 +1,63 @@
+@using CarsATTM_CustomerApp.Services
+@inject AuthSession Session
+@inject BrowserAuthStore Store
+@inject NavigationManager NavigationManager
+@implements IAsyncDisposable
+
+@code {
+    private bool disposed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        var mustOpenHome = false;
+        try
+        {
+            var tab = await Store.InitializeAsync();
+            if (disposed) return;
+            await RestoreAsync(tab.Token);
+            mustOpenHome = tab.StartAtHome;
+        }
+        catch (JSException)
+        {
+            // Si el almacenamiento está bloqueado, el login del circuito
+            // continúa funcionando durante esta visita.
+        }
+        finally
+        {
+            if (!disposed)
+            {
+                Session.MarkInitialized();
+                // Al abrir o duplicar una pestaña, siempre se muestra la portada.
+                // No se interfiere con la navegación interna ni con los refrescos
+                // de una pestaña que ya estaba abierta.
+                if (mustOpenHome && NavigationManager.ToBaseRelativePath(NavigationManager.Uri).Trim('/').Length > 0)
+                    NavigationManager.NavigateTo("/", replace: true);
+            }
+        }
+    }
+
+    private async Task RestoreAsync(string? jwt)
+    {
+        if (string.IsNullOrWhiteSpace(jwt))
+        {
+            Session.SignOut();
+            return;
+        }
+        try
+        {
+            Session.SignIn(jwt);
+        }
+        catch (ArgumentException)
+        {
+            Session.SignOut();
+            try { await Store.ClearAsync(); } catch (JSException) { }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        await Store.DisposeAsync();
+    }
+}

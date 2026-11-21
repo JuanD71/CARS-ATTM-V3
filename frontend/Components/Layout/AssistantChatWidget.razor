@@ -1,0 +1,247 @@
+@using CarsATTM_CustomerApp.Services
+@using System.Globalization
+@inject VehicleConversationService Conversation
+@inject IJSRuntime JS
+
+<div class="cars-chat-root">
+    @if (isOpen)
+    {
+        <section id="cars-chat-panel" class="cars-chat-panel" role="dialog" aria-modal="false" aria-label="Asistente virtual CARS ATTM">
+            <header class="cars-chat-header">
+                <div class="cars-chat-header-symbol" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H7l-3.5 2v-5.5A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11.5h8M8 14.5h5"/></svg>
+                </div>
+                <div class="cars-chat-heading">
+                    <strong>Asistente CARS ATTM</strong>
+                    <small><span class="cars-chat-status-dot"></span> IA local · Asesoría personalizada</small>
+                </div>
+                <button type="button" class="cars-chat-header-btn" title="Reiniciar conversación" aria-label="Reiniciar conversación" @onclick="ClearConversation" disabled="@busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.4 6.1M3 4v7h7"/></svg>
+                </button>
+                <button type="button" class="cars-chat-header-btn" title="Cerrar chat" aria-label="Cerrar chat" @onclick="ToggleChat">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>
+                </button>
+            </header>
+
+            <div class="cars-chat-conversation" @ref="conversationPanel" role="log" aria-label="Conversación con el asistente" aria-live="polite" aria-relevant="additions">
+                <div class="cars-chat-day-label">Tu asesor de vehículos</div>
+                @foreach (var entry in history)
+                {
+                    <div class="cars-chat-message-row @(entry.FromUser ? "cars-chat-from-user" : "cars-chat-from-bot")" @key="entry">
+                        @if (!entry.FromUser)
+                        {
+                            <div class="cars-chat-bot-avatar" aria-hidden="true">IA</div>
+                        }
+                        <div class="cars-chat-message-block">
+                            <div class="cars-chat-message-bubble @(entry.IsError ? "cars-chat-message-error" : "")">@entry.Text</div>
+                            @if (entry.Reply is { } response && response.Vehiculos.Count > 0)
+                            {
+                                @foreach (var suggestion in response.Vehiculos)
+                                {
+                                    <article class="cars-chat-vehicle" @key="suggestion.Vehiculo.Id">
+                                        <img src="@VehicleImage(suggestion.Vehiculo)" alt="@($"{suggestion.Vehiculo.Marca} {suggestion.Vehiculo.Linea}")" loading="lazy" />
+                                        <div class="cars-chat-vehicle-details">
+                                            <small>@suggestion.Vehiculo.Categoria · @suggestion.Vehiculo.Modelo</small>
+                                            <strong>@suggestion.Vehiculo.Marca @suggestion.Vehiculo.Linea</strong>
+                                            <span>@suggestion.Vehiculo.Puestos puestos · @suggestion.Vehiculo.Maletas maletas</span>
+                                            <span>@suggestion.Vehiculo.Transmision</span>
+                                            <b>@Price(suggestion.Vehiculo.PrecioDia) / día</b>
+                                            <span>Depósito: @Price(suggestion.Vehiculo.PrecioDia * 4)</span>
+                                            <a href="@($"/vehicle/{suggestion.Vehiculo.Id}")">Ver vehículo ↗</a>
+                                        </div>
+                                    </article>
+                                }
+                                @if (!response.FechasVerificadas && response.MostrarAvisoFechas)
+                                {
+                                    <div class="cars-chat-availability-note">La disponibilidad aún no se ha verificado. Indica las fechas antes de alquilar.</div>
+                                }
+                                else if (response.FechasVerificadas)
+                                {
+                                    <div class="cars-chat-availability-note cars-chat-checked">Disponibilidad consultada para el período. Se confirma de nuevo al reservar.</div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+                @if (busy)
+                {
+                    <div class="cars-chat-message-row cars-chat-from-bot" role="status">
+                        <div class="cars-chat-bot-avatar" aria-hidden="true">IA</div>
+                        <div class="cars-chat-message-bubble cars-chat-loading"><span></span><span></span><span></span> Analizando tu mensaje...</div>
+                    </div>
+                }
+            </div>
+
+            <div class="cars-chat-compose">
+                @if (history.Count == 1)
+                {
+                    <div class="cars-chat-chips" aria-label="Consultas sugeridas">
+                        <button type="button" @onclick='() => QuickSend("Busco un carro familiar y cómodo")'>Familiar</button>
+                        <button type="button" @onclick='() => QuickSend("Quiero un carro económico")'>Económico</button>
+                        <button type="button" @onclick='() => QuickSend("Ayúdame a elegir un vehículo")'>Ayúdame a elegir</button>
+                    </div>
+                }
+                <label class="cars-chat-date-check">
+                    <input type="checkbox" @bind="checkDates" @bind:after="OnDateToggle" disabled="@busy" />
+                    <span>Verificar disponibilidad por fechas</span>
+                </label>
+                @if (checkDates)
+                {
+                    <div class="cars-chat-dates">
+                        <label>Retiro
+                            <input type="date" @bind="startDate" @bind:format="yyyy-MM-dd" disabled="@busy" />
+                        </label>
+                        <label>Devolución
+                            <input type="date" @bind="endDate" @bind:format="yyyy-MM-dd" disabled="@busy" />
+                        </label>
+                    </div>
+                }
+                <div class="cars-chat-input-box">
+                    <label for="cars-chat-question" class="visually-hidden">Mensaje para el asistente</label>
+                    <textarea id="cars-chat-question" @ref="chatInput" rows="2" maxlength="1200"
+                              placeholder="Escríbele: ¿cuál es más barato?, somos 4 personas..."
+                              @bind="draft" @bind:event="oninput" @onkeydown="HandleKeyDown" disabled="@busy"></textarea>
+                    <button type="button" class="cars-chat-send" @onclick="SendAsync"
+                            disabled="@(busy || string.IsNullOrWhiteSpace(draft))" title="Enviar mensaje" aria-label="Enviar mensaje">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12 16-8-5.5 16-2.8-7.7L4 12Z"/><path d="m11.7 12.3 8.3-8.3"/></svg>
+                    </button>
+                </div>
+                <small class="cars-chat-footer-note">Ctrl + Enter para enviar · IA con Ollama · Datos de Inventario</small>
+            </div>
+        </section>
+    }
+
+    <button type="button" class="cars-chat-launcher" @onclick="ToggleChat"
+            aria-expanded="@isOpen" aria-controls="cars-chat-panel"
+            aria-label="@(isOpen ? "Cerrar asistente" : "Abrir asistente")"
+            title="@(isOpen ? "Cerrar chat" : "¿Qué carro necesitas? Pregunta a nuestra IA")">
+        @if (isOpen)
+        {
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5 5 19"/></svg>
+        }
+        else
+        {
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H7l-3.5 2v-5.5A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11.5h8M8 14.5h5"/></svg>
+        }
+    </button>
+</div>
+
+@code {
+    private static readonly CultureInfo Colombia = new("es-CO");
+    private static string Price(decimal amount) => "$" + amount.ToString("N0", Colombia) + " COP";
+    private static string VehicleImage(Vehicle vehicle) => vehicle.ImagenUrl ?? $"/vehicles/car-{((vehicle.Id - 1) % 40) + 1:00}.webp";
+
+    private sealed record ChatEntry(bool FromUser, string Text, VehicleChatReply? Reply = null, bool IsError = false);
+    private readonly List<ChatEntry> history =
+    [
+        new(false, "¡Hola! Soy tu asistente virtual. Dime qué necesitas para tu viaje y te ayudaré a comparar vehículos del catálogo. También puedes preguntarme precios, equipaje y depósitos.")
+    ];
+    private readonly VehicleConversationState context = new();
+
+    private bool isOpen;
+    private bool busy;
+    private bool checkDates;
+    private bool scrollRequested;
+    private bool focusRequested;
+    private DateTime startDate = DateTime.Today.AddDays(1);
+    private DateTime endDate = DateTime.Today.AddDays(4);
+    private string draft = string.Empty;
+    private ElementReference conversationPanel;
+    private ElementReference chatInput;
+
+    private void ToggleChat()
+    {
+        isOpen = !isOpen;
+        if (isOpen) { scrollRequested = true; focusRequested = true; }
+    }
+
+    private void ClearConversation()
+    {
+        if (busy) return;
+        context.Clear();
+        history.Clear();
+        history.Add(new ChatEntry(false, "Empecemos de nuevo. ¿Cuántas personas viajan, cuánto equipaje llevan y qué presupuesto diario tienes?"));
+        draft = "";
+        checkDates = false;
+        scrollRequested = true;
+        focusRequested = true;
+    }
+
+    private void OnDateToggle()
+    {
+        if (!checkDates)
+        {
+            context.FechaInicio = null;
+            context.FechaFin = null;
+            context.DuracionDias = null;
+        }
+    }
+
+    private Task QuickSend(string question)
+    {
+        draft = question;
+        return SendAsync();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || e.MetaKey))
+            await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        if (busy || string.IsNullOrWhiteSpace(draft)) return;
+        var question = draft.Trim();
+        draft = "";
+        history.Add(new ChatEntry(true, question));
+        busy = true;
+        scrollRequested = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var answer = await Conversation.RespondAsync(
+                question, context, checkDates ? startDate : null, checkDates ? endDate : null);
+            history.Add(new ChatEntry(false, answer.Mensaje, answer));
+            if (context.FechaInicio.HasValue && context.FechaFin.HasValue)
+            {
+                checkDates = true;
+                startDate = context.FechaInicio.Value;
+                endDate = context.FechaFin.Value;
+            }
+            else if (!context.FechaInicio.HasValue && !context.FechaFin.HasValue)
+                checkDates = false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            history.Add(new ChatEntry(false, ex.Message, IsError: true));
+        }
+        catch (Exception)
+        {
+            history.Add(new ChatEntry(false, "No se pudo completar la consulta. Comprueba Ollama y los servicios del catálogo e inténtalo de nuevo.", IsError: true));
+        }
+        finally
+        {
+            busy = false;
+            scrollRequested = true;
+            focusRequested = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!isOpen) return;
+        if (scrollRequested)
+        {
+            scrollRequested = false;
+            try { await JS.InvokeVoidAsync("carsAttmChat.scrollEnd", conversationPanel); }
+            catch (JSException) { /* El chat sigue siendo utilizable. */ }
+        }
+        if (focusRequested && !busy)
+        {
+            focusRequested = false;
+            try { await chatInput.FocusAsync(); }
+            catch (JSException) { /* En navegadores antiguos el usuario puede tocar el campo. */ }
+        }
+    }
+}

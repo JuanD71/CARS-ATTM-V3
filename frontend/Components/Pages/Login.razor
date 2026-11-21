@@ -1,0 +1,37 @@
+@page "/login"
+@layout LoginLayout
+@using System.ComponentModel.DataAnnotations
+@using CarsATTM_CustomerApp.Services
+@inject ILoginService LoginService
+@inject AuthSession AuthSession
+@inject BrowserAuthStore BrowserAuthStore
+@inject NavigationManager NavigationManager
+<PageTitle>Iniciar sesión | Cars ATTM</PageTitle>
+<div class="auth-experience">
+  <div class="auth-visual"><div class="auth-visual-overlay"></div><a class="auth-mark" href="/"><img src="/Logo.png" alt="Cars ATTM" /></a>
+    <div class="auth-visual-copy"><span class="auth-overline">CARS ATTM · RENT A CAR</span><h2>La libertad de elegir.<br /><em>El placer de conducir.</em></h2><p>Tu flota, tus fechas y tus alquileres, en una experiencia digital creada para moverte a tu ritmo.</p><div class="auth-benefits"><span>✓ Catálogo de vehículos</span><span>✓ Solicitudes en línea</span><span>✓ Gestión transparente</span></div></div>
+    <div class="auth-photo-caption">CARS ATTM · BOGOTÁ, COLOMBIA</div>
+  </div>
+  <div class="auth-form-side"><div class="auth-inner"><div class="auth-form-top"><span class="brand-mini">CARS<span>ATTM</span></span><a href="/register">Crear cuenta ↗</a></div>
+    <div class="auth-card"><div class="auth-heading"><span class="eyebrow">TU ACCESO A CARS ATTM</span><h1>Bienvenido a bordo.</h1><p>Accede a tu cuenta para descubrir la flota, gestionar tus alquileres o administrar la plataforma.</p></div>
+    <EditForm Model="credentials" OnValidSubmit="SignInAsync" FormName="loginForm"><DataAnnotationsValidator />
+      <div class="form-stack"><label>Correo electrónico o cédula<InputText class="form-control" @bind-Value="credentials.UserName" autocomplete="username" placeholder="tucorreo@ejemplo.com" /><ValidationMessage For="@(() => credentials.UserName)" /></label>
+      <label>Contraseña<div class="password-control"><InputText class="form-control" type="@(showPassword?"text":"password")" @bind-Value="credentials.Password" autocomplete="current-password" placeholder="Ingresa tu contraseña" /><button type="button" class="password-toggle" @onclick="TogglePassword">@(showPassword?"Ocultar":"Mostrar")</button></div><ValidationMessage For="@(() => credentials.Password)" /></label>
+      @if(!string.IsNullOrWhiteSpace(errorMessage)){<div class="alert alert-danger">@errorMessage</div>}
+      <button type="submit" class="btn btn-primary w-100 auth-submit" disabled="@isLoading">@(isLoading ? "Validando tus datos..." : "Iniciar sesión →")</button></div>
+    </EditForm><p class="auth-bottom">¿Todavía no tienes cuenta? <a href="/register">Regístrate aquí</a></p></div>
+    <div class="auth-security-strip"><span>✓ Sesión protegida</span><span>✓ Roles diferenciados</span><span>✓ Seguimiento de solicitudes</span></div>
+    <div class="auth-bottom-note">© 2026 Cars ATTM</div>
+  </div></div>
+</div>
+@code {
+ private readonly LoginModel credentials=new();private bool isLoading,showPassword;private string? errorMessage;
+ private void TogglePassword()=>showPassword=!showPassword;
+ private async Task SignInAsync(){errorMessage=null;isLoading=true;try{var token=await LoginService.LoginAsync(new LoginRequest(credentials.UserName,credentials.Password));if(string.IsNullOrWhiteSpace(token)){errorMessage="Correo o contraseña incorrectos.";return;}AuthSession.SignIn(token);try{await BrowserAuthStore.SaveAsync(token);}catch(JSException){/* Si sessionStorage está bloqueado, se permite la sesión local. */}var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(
+     new Uri(NavigationManager.Uri).Query);
+   var next = query.TryGetValue("returnUrl", out var values) ? values.ToString() : "/";
+   NavigationManager.NavigateTo(next.StartsWith('/') && !next.StartsWith("//") && !next.Contains('\\') ? next : "/");}
+ catch(Exception e) when(e is HttpRequestException or ArgumentException or InvalidOperationException or JSException){errorMessage="No se pudo iniciar sesión: "+e.Message;}
+ finally{isLoading=false;}}
+ private sealed class LoginModel{[Required(ErrorMessage="Escribe tu correo o cédula.")]public string UserName{get;set;}="";[Required(ErrorMessage="Escribe tu contraseña.")]public string Password{get;set;}="";}
+}

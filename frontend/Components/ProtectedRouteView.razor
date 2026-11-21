@@ -1,0 +1,75 @@
+@using CarsATTM_CustomerApp.Services
+@inject AuthSession AuthSession
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+@if (!AuthSession.IsInitialized && !isPublicRoute)
+{
+    <LayoutView Layout="@(DefaultLayout ?? typeof(Layout.MainLayout))">
+        <div class="auth-restore-state" role="status">Comprobando tu sesión...</div>
+    </LayoutView>
+}
+else if (isPublicRoute || (AuthSession.IsAuthenticated && HasPermission()))
+{
+    <RouteView RouteData="RouteData" DefaultLayout="DefaultLayout" />
+}
+else if (AuthSession.IsAuthenticated)
+{
+    <div class="empty-state" role="alert"><h2>Acceso restringido</h2><p>Tu perfil no tiene permiso para abrir esta sección.</p><a href="/" class="btn btn-primary">Ir al inicio</a></div>
+}
+else
+{
+    // Al cargar una ruta protegida directamente, ofrecer opciones sin redirección automática.
+    <LayoutView Layout="@(DefaultLayout ?? typeof(Layout.MainLayout))">
+        <LoginRequiredPrompt Visible="true" Inline="true" ActionText="@ProtectedAction"
+                             ReturnUrl="@ProtectedReturnUrl" OnCancel="BackToCatalog" />
+    </LayoutView>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public RouteData RouteData { get; set; } = default!;
+
+    [Parameter]
+    public Type? DefaultLayout { get; set; }
+
+    private bool isPublicRoute;
+
+    protected override void OnInitialized()
+    {
+        AuthSession.Changed += OnSessionChanged;
+    }
+
+    private void OnSessionChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => AuthSession.Changed -= OnSessionChanged;
+
+    protected override void OnParametersSet()
+    {
+        isPublicRoute = RouteData.PageType == typeof(Pages.Login)
+            || RouteData.PageType == typeof(Pages.Register)
+            || RouteData.PageType == typeof(Pages.Home)
+            || RouteData.PageType == typeof(Pages.Catalog)
+            || RouteData.PageType == typeof(Pages.VehicleDetail);
+    }
+
+    private bool HasPermission()
+    {
+        var page = RouteData.PageType;
+        if (page == typeof(Pages.Admin) || page == typeof(Pages.ControlCenter) || page == typeof(Pages.FleetAdmin) || page == typeof(Pages.UsersAdmin))
+            return AuthSession.Role == "admin";
+        if (page == typeof(Pages.Cart))
+            return AuthSession.Role == "cliente";
+        if (page == typeof(Pages.Multas))
+            return AuthSession.Role is "cliente" or "admin";
+        return true;
+    }
+
+    private string ProtectedReturnUrl => "/" + NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+
+    private string ProtectedAction => LoginRequiredRoutes.TryDescribe(
+        NavigationManager.ToBaseRelativePath(NavigationManager.Uri), out var action)
+        ? action : "acceder a esta sección";
+
+    private void BackToCatalog() => NavigationManager.NavigateTo("/catalog");
+}

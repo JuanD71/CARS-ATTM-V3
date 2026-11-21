@@ -1,0 +1,62 @@
+@page "/catalog"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+@inject LoginPrompt LoginPrompt
+@inject NavigationManager Nav
+<PageTitle>Catálogo completo | Cars ATTM</PageTitle>
+<div class="page-heading fleet-heading"><div><span class="eyebrow">NUESTRA FLOTA · UNA SOLA EXPERIENCIA</span><h1>Catálogo de vehículos</h1><p>Explora toda nuestra flota, compara características y reserva con las fechas que prefieras.</p></div><div class="fleet-badge"><span>✦</span> @vehicles.Count vehículos disponibles</div></div>
+<div class="catalog-categories" aria-label="Categorías de vehículos">
+  @foreach(var tipo in categories)
+  {
+    <button type="button" class="catalog-category-chip @(category==tipo ? "selected" : "")" @onclick="() => ChooseCategory(tipo)">
+      <span>@(tipo=="" ? "✦" : tipo=="Eléctrico" ? "ϟ" : tipo=="SUV" ? "◈" : "▣")</span> @(tipo=="" ? "Todos los vehículos" : tipo)
+    </button>
+  }
+</div>
+<div class="catalog-shell">
+  <aside class="catalog-filter-panel"><div class="filter-title"><strong>Filtrar resultados</strong><button class="link-reset" @onclick="Reset">Limpiar</button></div>
+    <div class="filter-field"><label for="keyword">Marca o modelo</label><input id="keyword" class="form-control" placeholder="Ej. Mazda, RAV4..." @bind="search" @bind:event="oninput" /></div>
+    <div class="filter-field"><label for="category">Tipo de vehículo</label><select id="category" class="form-select" @bind="category"><option value="">Todos los tipos</option><option>Compacto</option><option>Sedán</option><option>SUV</option><option>Pickup</option><option>Premium</option><option>Eléctrico</option><option>Van</option></select></div>
+    <div class="filter-field"><label for="gear">Transmisión</label><select id="gear" class="form-select" @bind="gear"><option value="">Cualquiera</option><option>Automática</option><option>Manual</option></select></div>
+    <div class="filter-field"><label for="fuel">Combustible</label><select id="fuel" class="form-select" @bind="fuel"><option value="">Cualquiera</option><option>Gasolina</option><option>Diésel</option><option>Híbrido</option><option>Eléctrico</option></select></div>
+    <div class="filter-field"><label for="maxPrice">Precio máximo por día</label><select id="maxPrice" class="form-select" @bind="maxPrice"><option value="0">Sin límite</option><option value="150000">$150.000 COP</option><option value="200000">$200.000 COP</option><option value="300000">$300.000 COP</option><option value="400000">$400.000 COP</option><option value="600000">$600.000 COP</option></select></div>
+    <div class="filter-separator"></div><span class="filter-subtitle">CONSULTAR DISPONIBILIDAD</span>
+    <div class="filter-field"><label>Fecha de retiro</label><input class="form-control" type="date" @bind="startDate" @bind:format="yyyy-MM-dd" /></div>
+    <div class="filter-field"><label>Fecha de devolución</label><input class="form-control" type="date" @bind="endDate" @bind:format="yyyy-MM-dd" /></div>
+    <button class="btn btn-primary w-100" @onclick="CheckAvailability" disabled="@loading">Consultar fechas ↗</button>
+  </aside>
+  <div class="catalog-results">
+    <div class="catalog-toolbar"><div><strong>@Visible.Count() vehículos disponibles</strong><small>@(checkedDates ? $"Para {startDate:dd/MM} — {endDate:dd/MM}" : "Explora la flota y compara tarifas en COP")</small></div><div class="toolbar-control"><label>Ordenar por</label><select class="form-select" @bind="sort"><option value="featured">Recomendados</option><option value="low">Menor precio</option><option value="high">Mayor precio</option><option value="latest">Modelo más reciente</option></select></div></div>
+    @if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+    @if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info <a href="/cart" class="alert-link">Ver carrito →</a></div>}
+    @if(loading){<div class="empty-state"><h3>Consultando la flota...</h3><p>Cargando los vehículos de nuestra flota.</p></div>}
+    else if(!Visible.Any()){<div class="empty-state"><span class="empty-icon">⌕</span><h3>No encontramos vehículos</h3><p>Prueba otras fechas, una categoría diferente o un precio máximo mayor.</p><button class="btn btn-outline-dark" @onclick="Reset">Quitar filtros</button></div>}
+    else {<div class="fleet-grid">@foreach(var car in Visible){<article class="vehicle-card" @key="car.Id">
+      <a href="@($"/vehicle/{car.Id}")" class="vehicle-image" aria-label="Ver detalles de @car.Marca @car.Linea"><img src="@(car.ImagenUrl ?? ImageFor(car.Id))" alt="Fotografía ilustrativa de @car.Marca @car.Linea" loading="lazy" /><span class="vehicle-category">@car.Categoria</span><span class="vehicle-image-arrow">↗</span></a>
+      <div class="vehicle-info"><span class="vehicle-brand">@car.Marca · @car.Modelo</span><h3>@car.Linea</h3><div class="vehicle-specs"><span>◷ @car.Transmision</span><span>◉ @car.Combustible</span><span>♙ @car.Puestos puestos</span></div>
+      <div class="vehicle-price"><div><strong>$@car.PrecioDia.ToString("N0")</strong><small> COP / día</small><small class="deposit-label">Depósito: $@((car.PrecioDia*4).ToString("N0")) COP (fijo)</small></div><div class="card-actions"><a href="@($"/vehicle/{car.Id}")" class="btn btn-soft btn-sm">Detalles</a><button class="btn btn-primary btn-sm" disabled="@(working || (Session.IsAuthenticated && Session.Role != "cliente"))" title="Agregar al carrito con las fechas seleccionadas" @onclick="() => AddAsync(car.Id)">Agregar +</button></div></div></div>
+    </article>}</div>}
+  </div>
+</div>
+@code {
+ private readonly string[] categories=["", "SUV", "Compacto", "Sedán", "Premium", "Pickup", "Eléctrico", "Van"];
+ private void ChooseCategory(string value)=>category=value;
+ private List<Vehicle> vehicles=[]; private string search="",category="",gear="",fuel="",sort="featured",error="",info="";
+ private decimal maxPrice; private bool loading=true,working,checkedDates;
+ private DateTime startDate=DateTime.Today.AddDays(1),endDate=DateTime.Today.AddDays(4);
+ private string ImageFor(int id)=> $"/vehicles/car-{((id-1)%40)+1:00}.webp";
+ private IEnumerable<Vehicle> Visible { get {var q=vehicles.Where(v=>
+   (string.IsNullOrWhiteSpace(search) || ($"{v.Marca} {v.Linea} {v.Modelo}").Contains(search,StringComparison.OrdinalIgnoreCase)) &&
+   (category=="" || v.Categoria==category) && (gear=="" || v.Transmision==gear) &&
+   (fuel=="" || v.Combustible==fuel) && (maxPrice==0 || v.PrecioDia<=maxPrice));
+   return sort switch {"low"=>q.OrderBy(v=>v.PrecioDia),"high"=>q.OrderByDescending(v=>v.PrecioDia),"latest"=>q.OrderByDescending(v=>v.Modelo),_=>q.OrderBy(v=>v.Id)};
+ } }
+ protected override Task OnInitializedAsync()=>LoadAsync();
+ private async Task LoadAsync(){loading=true;error="";try{vehicles=checkedDates ? await Api.AvailableVehiclesAsync(startDate,endDate) : await Api.VehiclesAsync();}catch(Exception e){error=e.Message;}finally{loading=false;}}
+ private async Task CheckAvailability(){error="";if(startDate.Date<DateTime.Today || endDate.Date<=startDate.Date){error="Selecciona fechas válidas: la devolución debe ser posterior al retiro.";return;}checkedDates=true;await LoadAsync();}
+ private async Task Reset(){search=category=gear=fuel="";maxPrice=0;sort="featured";checkedDates=false;await LoadAsync();}
+ private async Task AddAsync(int id){
+   if(!Session.IsAuthenticated){LoginPrompt.Request("añadir un vehículo al carrito", "/catalog");return;}
+   info=error="";working=true;try{if(startDate.Date<DateTime.Today || endDate.Date<=startDate.Date)throw new InvalidOperationException("Selecciona fechas futuras válidas.");await Api.AddCartAsync(id,startDate,endDate);info="Vehículo agregado correctamente al carrito.";}catch(Exception e){error=e.Message;}finally{working=false;}}
+}

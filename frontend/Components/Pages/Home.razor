@@ -1,0 +1,63 @@
+@page "/"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+@inject LoginPrompt LoginPrompt
+@inject NavigationManager Nav
+<PageTitle>Cars ATTM | Tu próximo destino comienza aquí</PageTitle>
+<section class="hero hero-premium">
+  <div class="hero-copy">
+    <span class="hero-kicker"><span class="hero-dot"></span> UNA FORMA MEJOR DE MOVERTE</span>
+    <h1>Tu destino cambia.<br /><em>Tu libertad no.</em></h1>
+    <p>Encuentra el vehículo ideal para tu próximo recorrido. Reserva tus fechas, compara opciones y gestiona todo en un solo lugar.</p>
+    <div class="hero-cta-row"><button class="btn btn-hero" @onclick="GoCatalog">Descubrir vehículos <span>↗</span></button><span>Flota actualizada en tiempo real</span></div>
+    <div class="hero-trust"><span>✓ Reserva digital</span><span>✓ Información clara</span><span>✓ Gestión segura</span></div>
+  </div>
+  <div class="hero-photo"><img src="/vehicles/car-05.webp" alt="Vehículo de la flota Cars ATTM" /></div>
+  <div class="hero-counter"><strong>@featured.Count<span>+</span></strong><small>Vehículos destacados</small></div>
+</section>
+<div class="home-search"><div class="search-feature"><span>01</span><div><strong>Elige tu vehículo</strong><small>Compactos, SUV, sedanes, premium y más</small></div></div><div class="search-feature"><span>02</span><div><strong>Selecciona tus fechas</strong><small>Consulta disponibilidad en tiempo real</small></div></div><div class="search-feature"><span>03</span><div><strong>Envía tu solicitud</strong><small>Confirma tu solicitud y coordina la recogida</small></div></div><button class="btn btn-primary search-go" @onclick="GoCatalog">Ver catálogo ↗</button></div>
+<section class="home-section">
+  <div class="section-heading"><div><span class="eyebrow">EXPLORA A TU RITMO</span><h2>Encuentra el estilo de viaje ideal</h2><p>Opciones para un día en la ciudad, una escapada o una ocasión especial.</p></div><a href="/catalog" class="text-link">Explorar la flota completa →</a></div>
+  <div class="category-grid">
+    <a href="/catalog" class="category-card"><img src="/vehicles/car-04.webp" alt="Automóvil compacto" /><div><span>ÁGIL Y PRÁCTICO</span><h3>Compactos</h3><small>Tu mejor aliado para la ciudad ↗</small></div></a>
+    <a href="/catalog" class="category-card"><img src="/vehicles/car-09.webp" alt="Vehículo SUV" /><div><span>ESPACIO Y CONFORT</span><h3>SUV y familiares</h3><small>Libertad en cada kilómetro ↗</small></div></a>
+    <a href="/catalog" class="category-card"><img src="/vehicles/car-22.webp" alt="Automóvil premium" /><div><span>UNA EXPERIENCIA SUPERIOR</span><h3>Premium</h3><small>Disfruta cada detalle ↗</small></div></a>
+  </div>
+</section>
+<section class="home-section">
+  <div class="section-heading"><div><span class="eyebrow">SELECCIÓN CARS ATTM</span><h2>Algunos favoritos de nuestra flota</h2><p>Consulta características, capacidad y tarifas para elegir el vehículo que mejor se adapta a tu recorrido.</p></div></div>
+  @if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+  @if(loading){<p class="loading-state">Cargando vehículos...</p>}
+  else {<div class="fleet-grid home-fleet">@foreach(var car in featured){<article class="vehicle-card">
+    <a href="@($"/vehicle/{car.Id}")" class="vehicle-image"><img src="@(car.ImagenUrl ?? $"/vehicles/car-{car.Id:00}.webp")" alt="@car.Marca @car.Linea" loading="lazy"/><span class="vehicle-category">@car.Categoria</span></a>
+    <div class="vehicle-info"><span class="vehicle-brand">@car.Marca · @car.Modelo</span><h3>@car.Linea</h3><div class="vehicle-specs"><span>@car.Transmision</span><span>@car.Puestos plazas</span><span>@car.Combustible</span></div><div class="vehicle-price"><div><strong>$@car.PrecioDia.ToString("N0")</strong><small> COP / día</small><small class="deposit-label">Depósito: $@((car.PrecioDia*4).ToString("N0")) COP</small></div><a class="btn btn-primary btn-sm" href="@($"/vehicle/{car.Id}")">Ver detalle ↗</a></div></div>
+  </article>}</div>}
+</section>
+<section class="home-benefits">
+  <div class="section-heading"><div><span class="eyebrow">DISEÑADO PARA SIMPLIFICAR</span><h2>Una experiencia completa en cada paso</h2><p>Desde la búsqueda inicial hasta la devolución del vehículo.</p></div></div>
+  <div class="benefits-grid">
+    <article><span>01 / DESCUBRE</span><div class="benefit-symbol">⌕</div><h3>Encuentra tu opción ideal</h3><p>Compara categorías, capacidad, transmisión y tarifas en pesos colombianos.</p><a href="/catalog">Explorar catálogo ↗</a></article>
+    <article><span>02 / SOLICITA</span><div class="benefit-symbol">▣</div><h3>Reserva con claridad</h3><p>Selecciona fechas, revisa el valor total y envía tu solicitud de alquiler.</p><button type="button" class="home-benefit-action" @onclick='() => OpenProtected("/cart", "consultar tu carrito")'>Ir a mi carrito ↗</button></article>
+    <article><span>03 / RECOGE</span><div class="benefit-symbol">✓</div><h3>Recoge en tu sucursal</h3><p>Con el pago confirmado, recoge tu vehículo el siguiente día hábil en la sucursal más cercana, dentro de su horario de atención.</p><button type="button" class="home-benefit-action" @onclick='() => OpenProtected("/orders", "consultar tus alquileres")'>Mis alquileres ↗</button></article>
+  </div>
+</section>
+<section class="home-faq"><div class="home-faq-intro"><span class="eyebrow">PREGUNTAS FRECUENTES</span><h2>Todo claro, antes de conducir.</h2><p>Encuentra aquí la información esencial para reservar, pagar y recoger tu vehículo.</p></div>
+<div class="home-faq-items"><details><summary>¿Es seguro alquilar automóviles?</summary><p>Antes de confirmar, puedes consultar las características del vehículo, las fechas y el valor de tu solicitud. La reserva queda sujeta a la validación del pago por parte del administrador.</p></details>
+<details><summary>¿Cuánto tiempo debo esperar entre el pago y poder recoger mi vehículo?</summary><p>Una vez que el administrador confirme el pago, podrás recoger el vehículo a partir del siguiente día hábil, dentro del horario de atención de la sucursal. Acude a la sucursal más cercana para coordinar la entrega.</p></details>
+<details><summary>¿Si tengo una multa ya no voy a poder sacar más vehículos?</summary><p>No podrás generar nuevos alquileres mientras tengas una multa pendiente. Cuando el pago quede confirmado por el administrador, podrás volver a solicitar vehículos.</p></details></div></section>
+<section class="confidence-banner"><div><span class="eyebrow">ENCUENTRA TU PRÓXIMO RECORRIDO</span><h2>Una flota para cada plan.</h2><p>Desde vehículos compactos para la ciudad hasta SUV para viajar con más espacio. Compara opciones y elige la que acompaña tu camino.</p></div><a href="/catalog" class="btn btn-light">Ver catálogo de vehículos ↗</a></section>
+@code {
+  private void GoCatalog()=>Nav.NavigateTo("/catalog");
+  private void OpenProtected(string destination, string action)
+  {
+    if (!Session.IsAuthenticated)
+    {
+      LoginPrompt.Request(action, destination);
+      return;
+    }
+    Nav.NavigateTo(destination);
+  }
+  private List<Vehicle> featured=[]; private bool loading=true; private string error="";
+  protected override async Task OnInitializedAsync(){try{var all=await Api.VehiclesAsync(); featured=all.Where(c=>c.Id==3||c.Id==6||c.Id==16||c.Id==29||c.Id==33||c.Id==40).ToList();}catch(Exception e){error=e.Message;}finally{loading=false;}}
+}

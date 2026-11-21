@@ -1,0 +1,40 @@
+@page "/register"
+@layout LoginLayout
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject NavigationManager Nav
+<PageTitle>Crear cuenta | Cars ATTM</PageTitle>
+<div class="auth-experience">
+  <div class="auth-visual auth-register-visual"><div class="auth-visual-overlay"></div><a class="auth-mark" href="/"><img src="/Logo.png" alt="Cars ATTM" /></a><div class="auth-visual-copy"><span class="auth-overline">ÚNETE A CARS ATTM</span><h2>El próximo viaje<br /><em>comienza contigo.</em></h2><p>Crea una cuenta para consultar los vehículos, guardar tu selección y solicitar alquileres en nuestra plataforma.</p></div><div class="auth-photo-caption">TU PRÓXIMO VIAJE COMIENZA AQUÍ</div></div>
+  <div class="auth-form-side"><div class="auth-inner"><div class="auth-form-top"><span class="brand-mini">CARS<span>ATTM</span></span><a href="/login">Ya tengo una cuenta ↗</a></div>
+    <div class="auth-card"><div class="auth-heading"><span class="eyebrow">ÚNETE A NUESTRA COMUNIDAD</span><h1>Crea tu cuenta</h1><p>Completa tus datos para crear tu cuenta de cliente y empezar a reservar vehículos.</p></div>
+    @if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+    @if(!string.IsNullOrWhiteSpace(message)){<div class="alert alert-success">@message <a href="/login">Inicia sesión →</a></div>}
+    <div class="form-stack"><label>Documento de identidad<input class="form-control" @bind="idText" placeholder="Número de documento" /></label>
+    <label>Nombre completo<input class="form-control" @bind="name" placeholder="Nombre y apellidos" /></label>
+    <label>Correo electrónico<input class="form-control" type="email" @bind="email" placeholder="tucorreo@ejemplo.com" /></label>
+    <label>Contraseña (mínimo 8 caracteres)<input class="form-control" type="password" @bind="password" placeholder="Crea una contraseña segura" /></label>
+    <label>Banco de la cuenta de ahorros<select class="form-select" @bind="bank"><option value="">Selecciona un banco</option>@foreach(var b in banks){<option value="@b">@b</option>}</select></label>
+    <label>Número de cuenta de ahorros<input class="form-control" inputmode="numeric" maxlength="20" @bind="accountNumber" placeholder="Entre 6 y 20 dígitos" /></label>
+    <p class="payment-contact-note">Los datos bancarios son para la simulación académica de pagos. No ingreses claves ni números de tarjetas.</p>
+    <button class="btn btn-primary w-100 auth-submit" disabled="@busy" @onclick="RegisterAsync">@(busy?"Creando cuenta...":"Crear cuenta →")</button></div>
+    <p class="auth-bottom">¿Ya estás registrado? <a href="/login">Inicia sesión</a></p></div><div class="auth-bottom-note">El registro público crea cuentas de cliente. Las cuentas de vendedor son gestionadas por el administrador.</div></div>
+  </div>
+</div>
+@code {
+ private string idText="",name="",email="",password="",bank="",accountNumber="",error="",message="";
+ private List<string> banks=[];private bool busy;
+ protected override async Task OnInitializedAsync(){try{banks=await Api.BanksAsync();}catch(Exception e){error="No fue posible cargar el catálogo bancario: "+e.Message;}}
+ private async Task RegisterAsync(){busy=true;error="";
+   try{
+     if(!long.TryParse(idText,out var id)||id<=0)throw new InvalidOperationException("Escribe un documento válido.");
+     if(name.Trim().Length<3)throw new InvalidOperationException("Escribe tu nombre completo.");
+     if(password.Length<8)throw new InvalidOperationException("La contraseña debe tener al menos 8 caracteres.");
+     if(!banks.Contains(bank))throw new InvalidOperationException("Selecciona un banco válido.");
+     if(accountNumber.Length<6 || accountNumber.Length>20 || !accountNumber.All(char.IsDigit))
+       throw new InvalidOperationException("Escribe una cuenta de ahorros de 6 a 20 dígitos.");
+     await Api.RegisterAsync(id,name,email,password,bank,accountNumber);
+     message="Cuenta creada correctamente. Ya puedes iniciar sesión.";
+   }catch(Exception e){error=e.Message;}finally{busy=false;}
+ }
+}

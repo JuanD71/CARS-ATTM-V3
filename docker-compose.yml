@@ -1,0 +1,300 @@
+name: carsattm-entrega-2026
+
+x-common-jwt: &jwt-common
+  JWT_SECRET: ${JWT_SECRET:?Configura JWT_SECRET en .env (mínimo 32 bytes)}
+
+services:
+  usuarios-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: usuarios_db
+      POSTGRES_USER: usuarios_user
+      POSTGRES_PASSWORD: ${USUARIOS_DB_PASSWORD:?Configura USUARIOS_DB_PASSWORD}
+    volumes:
+      - usuarios_pgdata:/var/lib/postgresql/data
+      - ./services/usuarios-service/database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U usuarios_user -d usuarios_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+
+  multas-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: multas_db
+      POSTGRES_USER: multas
+      POSTGRES_PASSWORD: ${MULTAS_DB_PASSWORD:?Configura MULTAS_DB_PASSWORD}
+    volumes:
+      - multas_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U multas -d multas_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+
+  inventario-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventario_db
+      POSTGRES_USER: inventario
+      POSTGRES_PASSWORD: ${INVENTARIO_DB_PASSWORD:?Configura INVENTARIO_DB_PASSWORD}
+    volumes:
+      - inventario_pgdata:/var/lib/postgresql/data
+      - ./services/inventario-service/database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventario -d inventario_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+
+  carrito-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: carrito_db
+      POSTGRES_USER: carrito
+      POSTGRES_PASSWORD: ${CARRITO_DB_PASSWORD:?Configura CARRITO_DB_PASSWORD}
+    volumes:
+      - carrito_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carrito -d carrito_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+
+  ordenes-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ordenes_db
+      POSTGRES_USER: ordenes
+      POSTGRES_PASSWORD: ${ORDENES_DB_PASSWORD:?Configura ORDENES_DB_PASSWORD}
+    volumes:
+      - ordenes_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ordenes -d ordenes_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+
+  # Prepara el volumen persistente con el UID/GID que usa apache/kafka:3.7.0.
+  # Evita el error de permisos al crear meta.properties/bootstrap.checkpoint.
+  kafka-data-init:
+    image: busybox:1.36
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /data && chown -R 1000:1000 /data && chmod -R u+rwX /data"]
+    volumes:
+      - kafka_data:/data
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    depends_on:
+      kafka-data-init:
+        condition: service_completed_successfully
+    # Kafka solo es accesible dentro de la red Docker (kafka:29092).
+    # No se publica ningún puerto del broker al host.
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 25s
+    restart: unless-stopped
+
+  usuarios-service:
+    build: ./services/usuarios-service
+    environment:
+      <<: *jwt-common
+      DB_HOST: usuarios-db
+      DB_PORT: '5432'
+      DB_NAME: usuarios_db
+      DB_USER: usuarios_user
+      DB_PASSWORD: ${USUARIOS_DB_PASSWORD:?}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
+      # El consumidor heredado puede reactivar cuentas manualmente deshabilitadas.
+      # El flujo actual de multas utiliza el endpoint interno HTTP y no necesita este consumidor.
+      ENABLE_LEGACY_ACCOUNT_EVENTS: "false"
+    depends_on:
+      usuarios-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    restart: unless-stopped
+
+  multas-service:
+    build: ./services/multas-service
+    environment:
+      <<: *jwt-common
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Configura INTERNAL_API_KEY}
+      USUARIOS_URL: http://usuarios-service:8000
+      DATABASE_URL: postgresql+psycopg://multas:${MULTAS_DB_PASSWORD:?}@multas-db:5432/multas_db
+      KAFKA_ENABLED: "true"
+      KAFKA_CONSUMER_ENABLED: "false"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      multas-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      usuarios-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    restart: unless-stopped
+
+  inventario-service:
+    build: ./services/inventario-service
+    volumes:
+      - vehicle_images:/data/vehicle-images
+    environment:
+      <<: *jwt-common
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
+      USUARIOS_URL: http://usuarios-service:8000
+      DATABASE_URL: postgresql+psycopg://inventario:${INVENTARIO_DB_PASSWORD:?}@inventario-db:5432/inventario_db
+    depends_on:
+      inventario-db:
+        condition: service_healthy
+      usuarios-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    restart: unless-stopped
+
+  carrito-service:
+    build: ./services/carrito-service
+    environment:
+      <<: *jwt-common
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
+      USUARIOS_URL: http://usuarios-service:8000
+      DATABASE_URL: postgresql+psycopg://carrito:${CARRITO_DB_PASSWORD:?}@carrito-db:5432/carrito_db
+      INVENTARIO_URL: http://inventario-service:8000
+    depends_on:
+      carrito-db:
+        condition: service_healthy
+      inventario-service:
+        condition: service_healthy
+      usuarios-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    restart: unless-stopped
+
+  ordenes-service:
+    build: ./services/ordenes-service
+    environment:
+      <<: *jwt-common
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?}
+      USUARIOS_URL: http://usuarios-service:8000
+      DATABASE_URL: postgresql+psycopg://ordenes:${ORDENES_DB_PASSWORD:?}@ordenes-db:5432/ordenes_db
+      INVENTARIO_URL: http://inventario-service:8000
+      CARRITO_URL: http://carrito-service:8000
+      MULTAS_URL: http://multas-service:8085
+    depends_on:
+      ordenes-db:
+        condition: service_healthy
+      inventario-service:
+        condition: service_healthy
+      carrito-service:
+        condition: service_healthy
+      usuarios-service:
+        condition: service_healthy
+      multas-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      ASPNETCORE_URLS: http://+:80
+      Api__LoginBaseUrl: http://usuarios-service:8000/
+      Api__MultasBaseUrl: http://multas-service:8085/
+      Api__InventarioBaseUrl: http://inventario-service:8000/
+      Api__CarritoBaseUrl: http://carrito-service:8000/
+      Api__OrdenesBaseUrl: http://ordenes-service:8000/
+      Ollama__BaseUrl: http://host.docker.internal:11434/
+      Ollama__Model: qwen3:1.7b
+    volumes:
+      - frontend_dataprotection:/root/.aspnet/DataProtection-Keys
+    # Solo se publica la interfaz web en loopback. Cloudflared se conecta desde el host.
+    ports:
+      - target: 80
+        published: "${WEB_PORT:-8081}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    depends_on:
+      usuarios-service:
+        condition: service_healthy
+      multas-service:
+        condition: service_healthy
+      inventario-service:
+        condition: service_healthy
+      carrito-service:
+        condition: service_healthy
+      ordenes-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/health > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  usuarios_pgdata:
+  multas_pgdata:
+  inventario_pgdata:
+  carrito_pgdata:
+  ordenes_pgdata:
+  kafka_data:
+  frontend_dataprotection:
+  vehicle_images:

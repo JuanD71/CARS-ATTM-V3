@@ -1,0 +1,38 @@
+CARS ATTM - CORRECCION DE CONVERSACION (21-11-2026)
+=================================================
+
+PROBLEMA CORREGIDO
+La pregunta "De esos 3, cual es mejor para mi?" podia ser interpretada por
+Qwen3 como una busqueda nueva; por eso se repetian las tres tarjetas en
+vez de recomendar uno de los vehiculos anteriores.
+
+CORRECCION
+- Detecta comparaciones generales: cual es mejor, cual me conviene,
+  cual de esos me recomiendas, cual de los tres elegirias, etc.
+- Compara EXCLUSIVAMENTE los vehiculos recomendados anteriormente.
+- Usa las preferencias que recuerda el chat: presupuesto, puestos, maletas,
+  categoria y transmision. Si se prioriza ahorrar, favorece el menor precio.
+- Explica por que recomienda un vehiculo concreto y muestra su tarjeta.
+- La frase "esos 3" no cambia por error el numero de pasajeros.
+- Conserva la consulta de disponibilidad de Inventario si hay fechas.
+
+INSTALACION
+1) NO BORRES ni desinstales el chat anterior. Debe estar funcionando.
+2) Descomprime este ZIP y copia sus 4 archivos a CARS ATTM V2, junto a
+   docker-compose.yml (si pregunta, no necesitas reemplazar otros archivos).
+3) Ejecuta INSTALAR_CORRECCION_CHAT.cmd.
+4) El instalador guarda copia del archivo afectado y recompila SOLO frontend.
+5) Abre localhost, presiona Ctrl+F5, reinicia el chat con el icono circular
+   y escribe: "Quiero un vehiculo barato para mi dia a dia".
+6) Luego escribe: "De esos 3 cual es mejor para mi".
+   Debe mencionar uno de los tres y justificar la eleccion.
+7) Comprueba tambien: "Cual tiene mas maletas" y
+   "Cuanto cuesta el primero por 4 dias".
+
+IMPORTANTE
+- No modifica .env, docker-compose.yml, usuarios, inventario, pagos,
+  multas, ordenes, Kafka, Ollama ni PostgreSQL.
+- Si falla la compilacion, recupera automaticamente el servicio anterior.
+- La prueba del programa completo se realiza en tu Docker de Windows.
+- Los vehiculos mostrados son ficticios. El asistente no puede garantizar
+  disponibilidad para fechas que no se hayan consultado.

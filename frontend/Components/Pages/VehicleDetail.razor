@@ -1,0 +1,38 @@
+@page "/vehicle/{Id:int}"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+@inject LoginPrompt LoginPrompt
+@inject NavigationManager Nav
+<PageTitle>Detalle del vehículo | Cars ATTM</PageTitle>
+<a class="breadcrumb-back" href="/catalog">← Volver al catálogo</a>
+@if(loading){<div class="empty-state"><h3>Cargando vehículo...</h3></div>}
+else if(car is null){<div class="empty-state"><h3>Vehículo no disponible</h3><p>@error</p><a class="btn btn-primary" href="/catalog">Ver otros vehículos</a></div>}
+else {
+  <div class="detail-title"><div><span class="eyebrow">CARS ATTM · NUESTRA FLOTA</span><h1>@car.Marca @car.Linea</h1><p>@car.Modelo · @car.Categoria · @car.Color</p></div><span class="small-badge">Disponible para reserva</span></div>
+  <div class="detail-layout">
+    <div class="detail-main">
+      <div class="detail-hero-image"><img src="@(car.ImagenUrl ?? $"/vehicles/car-{Id:00}.webp")" alt="Imagen ilustrativa de @car.Marca @car.Linea" /><span class="detail-photo-stamp">CARS ATTM</span></div>
+      <div class="detail-content-card"><div class="detail-section-title"><span class="eyebrow">EL VEHÍCULO</span><h2>Tu comodidad, en cada recorrido</h2></div><p class="detail-description">@car.Descripcion Consulta las fechas disponibles y el valor de alquiler antes de agregarlo a tu carrito.</p>
+      <div class="detail-feature-grid"><div class="feature-tile"><span>◷</span><strong>@car.Transmision</strong><small>Transmisión</small></div><div class="feature-tile"><span>◈</span><strong>@car.Combustible</strong><small>Combustible</small></div><div class="feature-tile"><span>♙</span><strong>@car.Puestos pasajeros</strong><small>Capacidad</small></div><div class="feature-tile"><span>▣</span><strong>@car.Maletas maletas</strong><small>Equipaje</small></div><div class="feature-tile"><span>◉</span><strong>@car.Modelo</strong><small>Modelo</small></div><div class="feature-tile"><span>✧</span><strong>@car.Color</strong><small>Color</small></div></div></div>
+      <div class="detail-content-card"><h2>¿Cómo funciona tu alquiler?</h2><div class="detail-steps"><div><b>01</b><span>Elige fechas y agrega el vehículo a tu carrito.</span></div><div><b>02</b><span>Confirma tus datos y envía la solicitud de pago.</span></div><div><b>03</b><span>El administrador revisa y aprueba o rechaza la solicitud.</span></div><div><b>04</b><span>Tras la aprobación, un asesor registra la entrega y devolución.</span></div></div></div>
+    </div>
+    <aside class="detail-booking"><div class="booking-topline"><span class="eyebrow">TU PRÓXIMO RECORRIDO</span><span class="status-pill">● Disponible para consulta</span></div><div class="booking-price"><strong>$@car.PrecioDia.ToString("N0")</strong><span>COP / día</span></div><p class="deposit-inline">Depósito fijo: <strong>$@((car.PrecioDia*4).ToString("N0")) COP</strong> (4 × tarifa diaria, sin depender de los días).</p><div class="booking-fields"><div class="filter-field"><label>Retiro</label><input class="form-control" type="date" @bind="startDate" @bind:format="yyyy-MM-dd" /></div><div class="filter-field"><label>Devolución</label><input class="form-control" type="date" @bind="endDate" @bind:format="yyyy-MM-dd" /></div></div>
+      @if(endDate > startDate){<div class="booking-breakdown"><span>@((endDate.Date-startDate.Date).Days) días × $@car.PrecioDia.ToString("N0")</span><strong>$@(((endDate.Date-startDate.Date).Days*car.PrecioDia).ToString("N0"))</strong></div>}
+      @if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+      @if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info <a href="/cart">Ir al carrito →</a></div>}
+      @if(!Session.IsAuthenticated || Session.Role == "cliente") {<button class="btn btn-primary w-100 booking-action" disabled="@working" @onclick="AddAsync">@(working?"Consultando disponibilidad...":"Añadir al carrito →")</button>}
+      else {<p class="booking-hint">Inicia sesión como cliente para gestionar un alquiler.</p>}
+      <p class="booking-hint">La solicitud de pago se envía al administrador para su validación antes de confirmar la reserva.</p><div class="booking-trust"><div>✓ Confirmación administrativa</div><div>✓ Solicitud registrada en tu cuenta</div><div>✓ Revisión por administrador</div></div>
+    </aside>
+  </div>
+}
+@code {
+ [Parameter] public int Id{get;set;}
+ private Vehicle? car;private bool loading=true,working;private string error="",info="";
+ private DateTime startDate=DateTime.Today.AddDays(1),endDate=DateTime.Today.AddDays(4);
+ protected override async Task OnParametersSetAsync(){loading=true;error="";try{car=await Api.VehicleAsync(Id);}catch(Exception e){error=e.Message;}finally{loading=false;}}
+ private async Task AddAsync(){
+   if(!Session.IsAuthenticated){LoginPrompt.Request("añadir este vehículo al carrito", $"/vehicle/{Id}");return;}
+   working=true;error=info="";try{if(startDate.Date<DateTime.Today||endDate.Date<=startDate.Date)throw new InvalidOperationException("Selecciona un período válido.");await Api.AddCartAsync(Id,startDate,endDate);info="Vehículo añadido para las fechas seleccionadas.";}catch(Exception e){error=e.Message;}finally{working=false;}}
+}

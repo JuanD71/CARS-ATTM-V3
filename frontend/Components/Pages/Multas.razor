@@ -1,0 +1,23 @@
+@page "/multas"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+<PageTitle>Multas | Cars ATTM</PageTitle>
+<div class="page-heading"><div><span class="eyebrow">HISTORIAL DE INCUMPLIMIENTOS</span><h1>@(Session.Role=="admin" ? "Todas las multas" : "Mis multas")</h1><p>Solo el administrador puede aprobarlas y aceptar pagos.</p></div><button class="btn btn-outline-dark" @onclick="LoadAsync">Actualizar</button></div>
+@if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+@if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info</div>}
+@if(loading){<p class="loading-state">Consultando multas...</p>}
+else if(fines.Count==0){<div class="empty-state"><h3>Sin multas registradas</h3><p>No hay solicitudes de multas para mostrar.</p></div>}
+else {<div class="orders-stack">@foreach(var fine in fines){<article class="fine-card"><div><span class="eyebrow">MULTA #@fine.Id · ORDEN #@fine.OrdenId</span><h3>@fine.PrecioMulta.ToString("N0") COP</h3><p>@fine.Tipo · @fine.Observacion</p><span class="status-pill">@fine.Estado</span></div>
+@if(Session.Role=="cliente" && fine.Estado=="APROBADA") {<button class="btn btn-primary" disabled="@working" @onclick="() => RequestPaymentAsync(fine.Id)">Pagar multa</button>}
+@if(Session.Role=="cliente" && fine.Estado=="PAGO_SOLICITADO") {<span class="status-pill">Pago en revisión administrativa</span>}
+@if(Session.Role=="admin" && fine.Estado=="SOLICITADA"){<div class="action-buttons"><button class="btn btn-primary" disabled="@working" @onclick="() => DecideAsync(fine.Id,true,false)">Aprobar multa</button><button class="btn btn-outline-danger" disabled="@working" @onclick="() => DecideAsync(fine.Id,false,false)">Rechazar</button></div>}
+@if(Session.Role=="admin" && fine.Estado=="PAGO_SOLICITADO"){<div class="action-buttons"><button class="btn btn-primary" disabled="@working" @onclick="() => DecideAsync(fine.Id,true,true)">Aceptar pago</button><button class="btn btn-outline-danger" disabled="@working" @onclick="() => DecideAsync(fine.Id,false,true)">Rechazar pago</button></div>}
+</article>}</div>}
+@code {
+  private List<FineDto> fines=[];private string error="",info="";private bool loading=true,working;
+  protected override Task OnInitializedAsync()=>LoadAsync();
+  private async Task LoadAsync(){loading=true;error="";try{fines=await Api.FinesAsync(Session.Role=="admin");}catch(Exception e){error=e.Message;}finally{loading=false;}}
+  private async Task RequestPaymentAsync(int id){working=true;error="";try{await Api.RequestFinePaymentAsync(id);info="Solicitud de pago enviada al administrador para revisión.";await LoadAsync();}catch(Exception e){error=e.Message;}finally{working=false;}}
+  private async Task DecideAsync(int id,bool approve,bool payment){working=true;error="";try{if(payment)await Api.DecideFinePaymentAsync(id,approve);else await Api.DecideFineAsync(id,approve);info="Decisión registrada en la base de datos.";await LoadAsync();}catch(Exception e){error=e.Message;}finally{working=false;}}
+}

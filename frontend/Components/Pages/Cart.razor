@@ -1,0 +1,114 @@
+@page "/cart"
+@using CarsATTM_CustomerApp.Services
+@inject CarsApi Api
+@inject AuthSession Session
+@inject NavigationManager Nav
+<PageTitle>Mi carrito | Cars ATTM</PageTitle>
+<div class="page-heading"><div><span class="eyebrow">TU SELECCIÓN</span><h1>Mi carrito</h1><p>Revisa tus vehículos y fechas antes de continuar con el pago.</p></div></div>
+@if(!string.IsNullOrWhiteSpace(error)){<div class="alert alert-danger">@error</div>}
+@if(!string.IsNullOrWhiteSpace(info)){<div class="alert alert-success">@info</div>}
+@if(loading){<div class="loading-state">Cargando carrito...</div>}
+else if(cart is null || cart.Items.Count==0){<div class="empty-state"><div class="empty-icon">◇</div><h3>Tu carrito está vacío</h3><p>Explora nuestra flota y agrega un vehículo para continuar.</p><button class="btn btn-primary" @onclick="GoCatalog">Explorar vehículos</button></div>}
+else{
+<div class="checkout-layout">
+  <div class="cart-list">
+    @foreach(var item in cart.Items){
+      <article class="cart-row"><div class="cart-thumb"><img src="@(item.ImagenUrl ?? $"/vehicles/car-{((item.VehiculoId - 1) % 40) + 1:00}.webp")" alt="@item.Marca @item.Linea" /></div><div><strong>@item.Marca @item.Linea</strong><small>@item.FechaInicio → @item.FechaFin · @item.Dias días</small><span>Alquiler: @item.Subtotal.ToString("N0") COP · Depósito fijo: @item.Deposito.ToString("N0") COP</span></div><button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveAsync(item.Id)" disabled="@working">Quitar</button></article>
+    }
+  </div>
+  <aside class="checkout-panel">
+    <span class="eyebrow">RESUMEN DE ALQUILER</span>
+    <div class="summary-line"><span>Vehículos</span><strong>@cart.Cantidad / 5</strong></div>
+    <div class="summary-line"><span>Alquiler</span><strong>@cart.Alquiler.ToString("N0") COP</strong></div>
+    <div class="summary-line"><span>Depósito reembolsable (4 × tarifa diaria por vehículo)</span><strong>@cart.Deposito.ToString("N0") COP</strong></div>
+    <div class="summary-line total"><span>Total a registrar</span><strong>@cart.Total.ToString("N0") COP</strong></div>
+    <p>Al continuar, enviarás tus datos y la solicitud de pago al administrador para su validación.</p>
+    @if(!showPaymentForm){
+      <button class="btn btn-primary w-100" disabled="@working" @onclick="() => showPaymentForm = true">Ir a pagar →</button>
+    }
+  </aside>
+</div>
+@if(showPaymentForm){
+  <section class="payment-contact-card">
+    <div><span class="eyebrow">DATOS DE CONTACTO</span><h2>Completa tus datos para pagar</h2><p>El administrador utilizará esta información para validar la solicitud y coordinar la entrega.</p></div>
+    <div class="payment-contact-grid">
+      <label>Correo electrónico<input class="form-control" type="email" autocomplete="email" @bind="contactEmail" placeholder="nombre@correo.com" /></label>
+      <label>Teléfono<input class="form-control" type="tel" autocomplete="tel" @bind="contactPhone" placeholder="3001234567" /></label>
+      <label>Documento<input class="form-control" inputmode="numeric" @bind="contactDocument" placeholder="Número de documento" /></label>
+    </div>
+    <div class="payment-bank-section">
+      <span class="eyebrow">CUENTA DE AHORROS PARA LA SOLICITUD</span>
+      <p>Selecciona la cuenta que asociaste al registrarte o agrega otra cuenta de ahorros a tu perfil.</p>
+      <div class="payment-bank-controls">
+        <label for="payment-account-select" class="payment-bank-account-label">Cuenta bancaria asociada
+          <select id="payment-account-select" class="form-select" @bind="selectedAccountId">
+            @foreach(var account in accounts){<option value="@account.Id">@account.Banco · ****@account.Ultimos4 @(account.Principal ? "(principal)" : "")</option>}
+          </select>
+        </label>
+        <button type="button" class="btn btn-outline-dark payment-bank-add" @onclick="() => showNewAccount = !showNewAccount">@(showNewAccount ? "Cancelar nueva cuenta" : "+ Agregar otra cuenta")</button>
+      </div>
+      @if(showNewAccount)
+      {
+        <div class="payment-contact-grid mt-2">
+          <label>Banco<select class="form-select" @bind="newBank"><option value="">Selecciona banco</option>@foreach(var b in banks){<option value="@b">@b</option>}</select></label>
+          <label>Cuenta de ahorros<input class="form-control" maxlength="20" inputmode="numeric" @bind="newNumber" placeholder="6 a 20 dígitos" /></label>
+          <button class="btn btn-primary btn-sm" disabled="@working" @onclick="AddBankAccountAsync">Guardar cuenta</button>
+        </div>
+      }
+    </div>
+    <p class="payment-contact-note">Simulación académica: se registra la cuenta seleccionada y un pago pendiente de aprobación, pero no se realizan transferencias bancarias. No ingreses claves ni datos de tarjetas.</p>
+    <div class="payment-contact-actions"><button class="btn btn-outline-dark" disabled="@working" @onclick="() => showPaymentForm = false">Volver</button><button class="btn btn-primary" disabled="@working" @onclick="CheckoutAsync">@(working ? "Enviando..." : "Pagar")</button></div>
+  </section>
+}
+}
+@code {
+  private void GoCatalog()=>Nav.NavigateTo("/catalog");
+  private CartDto? cart; private string error="",info=""; private bool loading=true,working,showPaymentForm;
+  private string contactEmail="",contactPhone="",contactDocument="";
+  private List<BankAccountDto> accounts=[];private List<string> banks=[];
+  private int selectedAccountId;private string newBank="",newNumber="";private bool showNewAccount;
+  protected override async Task OnInitializedAsync(){
+    if(Session.Sub.HasValue)contactDocument=Session.Sub.Value.ToString();
+    try{
+      banks=await Api.BanksAsync();
+      await ReloadAccountsAsync();
+    }catch(Exception e){error="Error al consultar las cuentas de ahorros: "+e.Message;}
+    await LoadAsync();
+  }
+  private async Task ReloadAccountsAsync(){
+    accounts=await Api.BankAccountsAsync();
+    if(!accounts.Any(x=>x.Id==selectedAccountId))
+      selectedAccountId=accounts.FirstOrDefault(x=>x.Principal)?.Id ?? accounts.FirstOrDefault()?.Id ?? 0;
+  }
+  private async Task AddBankAccountAsync(){
+    error="";
+    if(!banks.Contains(newBank)){error="Selecciona un banco de la lista.";return;}
+    if(newNumber.Length<6 || newNumber.Length>20 || !newNumber.All(char.IsDigit)){
+      error="Escribe una cuenta de ahorros de 6 a 20 dígitos.";return;
+    }
+    working=true;
+    try{
+      var added=await Api.AddBankAccountAsync(newBank,newNumber);
+      await ReloadAccountsAsync();
+      selectedAccountId=added.Id;
+      newBank=newNumber="";showNewAccount=false;
+      info="Cuenta bancaria adicional guardada.";
+    }catch(Exception e){error=e.Message;}finally{working=false;}
+  }
+  private async Task LoadAsync(){loading=true;try{cart=await Api.CartAsync();}catch(Exception ex){error=ex.Message;}finally{loading=false;}}
+  private async Task RemoveAsync(int id){working=true;error="";try{cart=await Api.RemoveCartAsync(id);}catch(Exception e){error=e.Message;}finally{working=false;}}
+  private async Task CheckoutAsync(){
+    error="";
+    var digits=new string(contactPhone.Where(char.IsDigit).ToArray());
+    var doc=new string(contactDocument.Where(char.IsDigit).ToArray());
+    if(string.IsNullOrWhiteSpace(contactEmail)||!contactEmail.Contains('@')||!contactEmail.Contains('.')){error="Escribe un correo electrónico válido.";return;}
+    if(digits.Length<7||digits.Length>15){error="Escribe un teléfono válido de 7 a 15 dígitos.";return;}
+    if(doc.Length<5||doc.Length>15){error="Escribe un documento válido de 5 a 15 dígitos.";return;}
+    if(selectedAccountId<=0 || !accounts.Any(x=>x.Id==selectedAccountId)){
+      error="Selecciona una cuenta de ahorros asociada a tu usuario.";return;
+    }
+    working=true;
+    try{var o=await Api.CheckoutAsync(contactEmail.Trim(),digits,doc,selectedAccountId);info=$"Solicitud de alquiler y depósito enviada al administrador. Número de orden: #{o.Id}.";showPaymentForm=false;await LoadAsync();}
+    catch(Exception e){error=e.Message;}finally{working=false;}
+  }
+}
